@@ -1,0 +1,134 @@
+Build a full-stack dashboard app for Revryze.
+
+Stack:
+- Node.js + Express backend
+- React frontend (Vite)
+- Snowflake connection using snowflake-sdk
+- Clean, modern dark UI
+- Fully responsive
+- No unnecessary libraries
+
+Branding:
+- Background: #000000
+- Primary green: #10E29C
+- Light gray: #E5E5E5
+- Font: clean, modern, bold headings
+- Include Revryze logo in top left
+- Minimal, high-contrast, data-focused layout
+
+Environment Variables Required:
+SNOWFLAKE_ACCOUNT
+SNOWFLAKE_USER
+SNOWFLAKE_PASSWORD
+SNOWFLAKE_WAREHOUSE
+SNOWFLAKE_DATABASE
+SNOWFLAKE_SCHEMA
+
+---------------------------------
+FUNCTIONAL REQUIREMENTS
+---------------------------------
+
+Create backend endpoint:
+
+GET /api/metrics
+
+Query Snowflake and return:
+
+1. closed_won_count
+2. closed_won_value
+3. total_spend
+4. total_leads
+
+Assume tables:
+
+deals
+- stage
+- deal_value
+
+ads
+- spend
+- leads
+
+SQL logic:
+
+SELECT
+  (SELECT COUNT(*) FROM deals WHERE stage = 'Closed Won') AS closed_won_count,
+  (SELECT COALESCE(SUM(deal_value),0) FROM deals WHERE stage = 'Closed Won') AS closed_won_value,
+  (SELECT COALESCE(SUM(spend),0) FROM ads) AS total_spend,
+  (SELECT COALESCE(SUM(leads),0) FROM ads) AS total_leads;
+
+---------------------------------
+FRONTEND DASHBOARD
+---------------------------------
+
+Display metric cards:
+
+1. Closed Won Deals
+2. Closed Won Revenue
+3. Total Ad Spend
+4. CPL (calculate frontend: total_spend / total_leads)
+5. Cost Per Membership (total_spend / closed_won_count)
+6. Lead-to-Sale Conversion Rate (closed_won_count / total_leads)
+
+All numbers formatted cleanly:
+- Currency with $
+- Percentages with 2 decimals
+
+---------------------------------
+GOAL CALCULATOR SECTION
+---------------------------------
+
+User can input:
+
+Goal Membership Count
+
+Calculate dynamically:
+
+conversionRate = closed_won_count / total_leads
+cpl = total_spend / total_leads
+
+requiredLeads = goalMemberships / conversionRate
+requiredSpend = requiredLeads * cpl
+
+Display:
+
+- Required Leads
+- Required Spend
+
+Update instantly as user types.
+
+---------------------------------
+UI REQUIREMENTS
+---------------------------------
+
+Layout:
+- Top: Revryze logo
+- Below: 6 metric cards in responsive grid
+- Below: Goal Calculator in highlighted green bordered section
+
+Style:
+- Rounded cards
+- Subtle shadows
+- Hover animation
+- Large bold numbers
+- Clean spacing
+- Dark executive feel
+
+---------------------------------
+CODE STRUCTURE
+---------------------------------
+
+/server
+  index.js
+  snowflake.js
+
+/client
+  main.jsx
+  App.jsx
+  components/
+    MetricCard.jsx
+    GoalCalculator.jsx
+
+Include full working code.
+Do not leave placeholders.
+Handle divide-by-zero safely.
