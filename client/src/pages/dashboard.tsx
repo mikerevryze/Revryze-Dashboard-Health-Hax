@@ -2,16 +2,17 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Trophy,
   DollarSign,
-  Megaphone,
-  UserCheck,
-  CreditCard,
+  Users,
+  XCircle,
   TrendingUp,
+  Activity,
 } from "lucide-react";
 import { MetricCard } from "@/components/MetricCard";
-import { GoalCalculator } from "@/components/GoalCalculator";
+import { FunnelChart } from "@/components/FunnelChart";
+import { RecentDeals } from "@/components/RecentDeals";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
-import type { Metrics } from "@shared/schema";
+import type { Metrics, FunnelStage, RecentDeal } from "@shared/schema";
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -20,10 +21,6 @@ function formatCurrency(value: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(value);
-}
-
-function formatPercent(value: number): string {
-  return `${(value * 100).toFixed(2)}%`;
 }
 
 function LoadingSkeleton() {
@@ -46,22 +43,6 @@ function LoadingSkeleton() {
           </Card>
         ))}
       </div>
-      <div className="mt-8">
-        <Card className="border-card-border bg-card p-6">
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-10 w-10 rounded-md" />
-            <div className="space-y-2">
-              <Skeleton className="h-5 w-36" />
-              <Skeleton className="h-3 w-64" />
-            </div>
-          </div>
-          <Skeleton className="mt-5 h-9 w-full" />
-          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Skeleton className="h-24 rounded-md" />
-            <Skeleton className="h-24 rounded-md" />
-          </div>
-        </Card>
-      </div>
     </div>
   );
 }
@@ -71,7 +52,7 @@ function ErrorState({ message }: { message: string }) {
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <Card className="border-destructive/30 bg-card p-8 text-center">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-          <Megaphone className="h-6 w-6 text-destructive" />
+          <XCircle className="h-6 w-6 text-destructive" />
         </div>
         <h3 className="text-lg font-semibold text-foreground">
           Unable to load metrics
@@ -85,29 +66,29 @@ function ErrorState({ message }: { message: string }) {
 }
 
 export default function Dashboard() {
-  const { data: metrics, isLoading, error } = useQuery<Metrics>({
+  const { data: metrics, isLoading: metricsLoading, error: metricsError } = useQuery<Metrics>({
     queryKey: ["/api/metrics"],
     refetchInterval: 60000,
   });
 
-  if (isLoading) return <LoadingSkeleton />;
-  if (error) return <ErrorState message={(error as Error).message} />;
+  const { data: funnel, isLoading: funnelLoading } = useQuery<FunnelStage[]>({
+    queryKey: ["/api/funnel"],
+    refetchInterval: 60000,
+  });
+
+  const { data: recent, isLoading: recentLoading } = useQuery<RecentDeal[]>({
+    queryKey: ["/api/recent"],
+    refetchInterval: 60000,
+  });
+
+  if (metricsLoading) return <LoadingSkeleton />;
+  if (metricsError) return <ErrorState message={(metricsError as Error).message} />;
   if (!metrics) return <ErrorState message="No data available" />;
 
-  const cpl =
-    metrics.total_leads > 0
-      ? metrics.total_spend / metrics.total_leads
-      : 0;
-
-  const costPerMembership =
-    metrics.closed_won_count > 0
-      ? metrics.total_spend / metrics.closed_won_count
-      : 0;
-
   const conversionRate =
-    metrics.total_leads > 0
-      ? metrics.closed_won_count / metrics.total_leads
-      : 0;
+    metrics.total_deals > 0
+      ? ((metrics.won_deals / metrics.total_deals) * 100).toFixed(1)
+      : "0.0";
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
@@ -116,51 +97,77 @@ export default function Dashboard() {
           Performance Dashboard
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Real-time sales and advertising metrics
+          GHL Pipeline Stats &middot; Live from Snowflake
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
-          title="Closed Won Deals"
-          value={metrics.closed_won_count.toLocaleString()}
+          title="Total Deals"
+          value={metrics.total_deals.toLocaleString()}
+          icon={Users}
+          subtitle="All opportunities in pipeline"
+        />
+        <MetricCard
+          title="Open Deals"
+          value={metrics.open_deals.toLocaleString()}
+          icon={Activity}
+          subtitle="Currently active deals"
+        />
+        <MetricCard
+          title="Won Deals"
+          value={metrics.won_deals.toLocaleString()}
           icon={Trophy}
-          subtitle="Total deals closed"
+          subtitle="Closed won"
         />
         <MetricCard
-          title="Closed Won Revenue"
-          value={formatCurrency(metrics.closed_won_value)}
-          icon={DollarSign}
-          subtitle="Total revenue from closed deals"
+          title="Lost Deals"
+          value={metrics.lost_deals.toLocaleString()}
+          icon={XCircle}
+          subtitle="Closed lost"
         />
         <MetricCard
-          title="Total Ad Spend"
-          value={formatCurrency(metrics.total_spend)}
-          icon={Megaphone}
-          subtitle="Cumulative ad investment"
-        />
-        <MetricCard
-          title="Cost Per Lead"
-          value={cpl > 0 ? formatCurrency(cpl) : "$0"}
-          icon={UserCheck}
-          subtitle="Average cost per lead generated"
-        />
-        <MetricCard
-          title="Cost Per Membership"
-          value={costPerMembership > 0 ? formatCurrency(costPerMembership) : "$0"}
-          icon={CreditCard}
-          subtitle="Ad spend per membership acquired"
-        />
-        <MetricCard
-          title="Lead-to-Sale Rate"
-          value={conversionRate > 0 ? formatPercent(conversionRate) : "0.00%"}
+          title="Conversion Rate"
+          value={`${conversionRate}%`}
           icon={TrendingUp}
-          subtitle="Conversion from lead to closed deal"
+          subtitle="Won / Total deals"
+        />
+        <MetricCard
+          title="Total Value"
+          value={formatCurrency(metrics.total_value)}
+          icon={DollarSign}
+          subtitle="Sum of all deal values"
         />
       </div>
 
       <div className="mt-8">
-        <GoalCalculator metrics={metrics} />
+        {funnelLoading ? (
+          <Card className="border-card-border bg-card p-6">
+            <Skeleton className="mb-4 h-6 w-40" />
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-8 w-full" />
+              ))}
+            </div>
+          </Card>
+        ) : funnel && funnel.length > 0 ? (
+          <FunnelChart funnel={funnel} />
+        ) : null}
+      </div>
+
+      <div className="mt-8">
+        {recentLoading ? (
+          <Card className="border-card-border bg-card p-6">
+            <Skeleton className="mb-4 h-6 w-40" />
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          </Card>
+        ) : recent && recent.length > 0 ? (
+          <RecentDeals deals={recent} />
+        ) : null}
       </div>
     </div>
   );

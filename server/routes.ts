@@ -9,40 +9,96 @@ export async function registerRoutes(
 ): Promise<Server> {
   app.get("/api/metrics", async (_req, res) => {
     try {
-      const sql = `
-        SELECT
-          (SELECT COUNT(*) FROM deals WHERE stage = 'Closed Won') AS closed_won_count,
-          (SELECT COALESCE(SUM(deal_value),0) FROM deals WHERE stage = 'Closed Won') AS closed_won_value,
-          (SELECT COALESCE(SUM(spend),0) FROM ads) AS total_spend,
-          (SELECT COALESCE(SUM(leads),0) FROM ads) AS total_leads
-      `;
-
       const rows = await executeQuery<{
-        CLOSED_WON_COUNT: number;
-        CLOSED_WON_VALUE: number;
-        TOTAL_SPEND: number;
-        TOTAL_LEADS: number;
-      }>(sql);
-
-      if (!rows || rows.length === 0) {
-        return res.json({
-          closed_won_count: 0,
-          closed_won_value: 0,
-          total_spend: 0,
-          total_leads: 0,
-        });
-      }
+        TOTAL_DEALS: number;
+        WON_DEALS: number;
+        LOST_DEALS: number;
+        OPEN_DEALS: number;
+        TOTAL_VALUE: number;
+      }>(`
+        SELECT
+          COUNT(*)                                           AS TOTAL_DEALS,
+          SUM(CASE WHEN STATUS = 'won' THEN 1 ELSE 0 END)   AS WON_DEALS,
+          SUM(CASE WHEN STATUS = 'lost' THEN 1 ELSE 0 END)  AS LOST_DEALS,
+          SUM(CASE WHEN STATUS = 'open' THEN 1 ELSE 0 END)  AS OPEN_DEALS,
+          COALESCE(SUM(MONETARY_VALUE), 0)                   AS TOTAL_VALUE
+        FROM REVRYZE.RAW.GHL_OPPORTUNITIES
+      `);
 
       const row = rows[0];
       res.json({
-        closed_won_count: Number(row.CLOSED_WON_COUNT) || 0,
-        closed_won_value: Number(row.CLOSED_WON_VALUE) || 0,
-        total_spend: Number(row.TOTAL_SPEND) || 0,
-        total_leads: Number(row.TOTAL_LEADS) || 0,
+        total_deals: Number(row?.TOTAL_DEALS) || 0,
+        won_deals: Number(row?.WON_DEALS) || 0,
+        lost_deals: Number(row?.LOST_DEALS) || 0,
+        open_deals: Number(row?.OPEN_DEALS) || 0,
+        total_value: Number(row?.TOTAL_VALUE) || 0,
       });
     } catch (err: any) {
       log(`Metrics endpoint error: ${err.message}`, "api");
       res.status(500).json({ message: "Failed to fetch metrics from Snowflake" });
+    }
+  });
+
+  app.get("/api/funnel", async (_req, res) => {
+    try {
+      const rows = await executeQuery<{
+        PIPELINE_NAME: string;
+        PIPELINE_STAGE_NAME: string;
+        OPP_COUNT: number;
+        TOTAL_VALUE: number;
+      }>(`
+        SELECT
+          PIPELINE_NAME,
+          PIPELINE_STAGE_NAME,
+          COUNT(*)                        AS OPP_COUNT,
+          COALESCE(SUM(MONETARY_VALUE),0) AS TOTAL_VALUE
+        FROM REVRYZE.RAW.GHL_OPPORTUNITIES
+        WHERE STATUS != 'lost'
+        GROUP BY PIPELINE_NAME, PIPELINE_STAGE_NAME
+        ORDER BY PIPELINE_NAME, OPP_COUNT DESC
+      `);
+
+      res.json(
+        rows.map((r) => ({
+          pipeline_name: r.PIPELINE_NAME || "Unknown",
+          stage_name: r.PIPELINE_STAGE_NAME || "Unknown",
+          count: Number(r.OPP_COUNT) || 0,
+          total_value: Number(r.TOTAL_VALUE) || 0,
+        }))
+      );
+    } catch (err: any) {
+      log(`Funnel endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch funnel data" });
+    }
+  });
+
+  app.get("/api/recent", async (_req, res) => {
+    try {
+      const rows = await executeQuery<{
+        NAME: string;
+        PIPELINE_STAGE_NAME: string;
+        STATUS: string;
+        MONETARY_VALUE: number;
+        UPDATED_AT_TS: string | null;
+      }>(`
+        SELECT NAME, PIPELINE_STAGE_NAME, STATUS, MONETARY_VALUE, UPDATED_AT_TS
+        FROM REVRYZE.RAW.GHL_OPPORTUNITIES
+        ORDER BY UPDATED_AT_TS DESC
+        LIMIT 10
+      `);
+
+      res.json(
+        rows.map((r) => ({
+          name: r.NAME || "Unnamed",
+          stage_name: r.PIPELINE_STAGE_NAME || "Unknown",
+          status: r.STATUS || "unknown",
+          value: Number(r.MONETARY_VALUE) || 0,
+          updated_at: r.UPDATED_AT_TS ?? null,
+        }))
+      );
+    } catch (err: any) {
+      log(`Recent deals endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch recent deals" });
     }
   });
 

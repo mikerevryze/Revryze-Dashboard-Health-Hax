@@ -11,14 +11,21 @@ function getConnection(): Promise<snowflake.Connection> {
       return resolve(connection);
     }
 
-    const conn = snowflake.createConnection({
+    const warehouse = process.env.SNOWFLAKE_WAREHOUSE!;
+    const schema = process.env.SNOWFLAKE_SCHEMA!;
+
+    const connOpts: any = {
       account: process.env.SNOWFLAKE_ACCOUNT!,
       username: process.env.SNOWFLAKE_USER!,
       password: process.env.SNOWFLAKE_PASSWORD!,
-      warehouse: process.env.SNOWFLAKE_WAREHOUSE!,
       database: process.env.SNOWFLAKE_DATABASE!,
-      schema: process.env.SNOWFLAKE_SCHEMA!,
-    });
+      warehouse,
+      schema,
+    };
+
+    log(`Connecting with warehouse: "${warehouse}", db: "${process.env.SNOWFLAKE_DATABASE}", schema: "${schema}"`, "snowflake");
+
+    const conn = snowflake.createConnection(connOpts);
 
     conn.connect((err, conn) => {
       if (err) {
