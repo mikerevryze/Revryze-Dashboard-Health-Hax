@@ -14,7 +14,8 @@ A full-stack performance dashboard for Revryze that connects to Snowflake to dis
 - `client/src/components/MetricCard.tsx` - Reusable metric card component
 - `client/src/components/FunnelChart.tsx` - Pipeline funnel bar chart
 - `client/src/components/GoalCalculator.tsx` - Goal calculator with popips/organic lead offset
-- `server/routes.ts` - API routes (GET /api/metrics, /api/meta, /api/funnel)
+- `client/src/components/DateRangePicker.tsx` - Date range picker with presets (30d/60d/90d/120d/All) and custom calendar
+- `server/routes.ts` - API routes (GET /api/metrics, /api/meta, /api/funnel) with date filtering
 - `server/snowflake.ts` - Snowflake connection and query executor (with USE WAREHOUSE fix)
 - `server/logger.ts` - Shared logging utility
 - `shared/schema.ts` - Shared TypeScript types (Metrics, MetaMetrics, FunnelStage)
@@ -23,11 +24,14 @@ A full-stack performance dashboard for Revryze that connects to Snowflake to dis
 - `GET /api/metrics` - Returns { total_leads, closed_won, open_deals, lost_deals, total_value } from GHL_OPPORTUNITIES
 - `GET /api/meta` - Returns { total_spend, total_leads, cpl } from META_ADS_DAILY
 - `GET /api/funnel` - Returns array of { pipeline_name, stage_name, count, total_value } (excludes lost/closed-lost)
+- All endpoints support `?days=N` or `?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` for date filtering
 
 ## Environment Variables (Secrets)
 - SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, SNOWFLAKE_WAREHOUSE, SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA
 
 ## Recent Changes
+- 2026-02-22: Added DateRangePicker with preset buttons (30d/60d/90d/120d/All) and custom calendar range picker
+- 2026-02-22: Added date filtering to all API endpoints via ?days=N or ?start_date/end_date query params
 - 2026-02-21: Added Meta Ads endpoint (/api/meta) pulling from META_ADS_DAILY table
 - 2026-02-21: Updated metrics to use PIPELINE_STAGE_NAME for closed-won/lost detection via ILIKE
 - 2026-02-21: Rebuilt GoalCalculator with popips (organic leads) offset and Meta CPL integration
