@@ -1,0 +1,460 @@
+Replace the following 4 files exactly as shown. Do NOT change any other files.
+
+1. Replace shared/schema.ts with:
+
+import { z } from "zod";
+
+export const metricsSchema = z.object({
+  total_leads: z.number(),
+  closed_won: z.number(),
+  open_deals: z.number(),
+  lost_deals: z.number(),
+  total_value: z.number(),
+});
+
+export type Metrics = z.infer<typeof metricsSchema>;
+
+export const metaSchema = z.object({
+  total_spend: z.number(),
+  total_leads: z.number(),
+  cpl: z.number(),
+});
+
+export type MetaMetrics = z.infer<typeof metaSchema>;
+
+export const funnelStageSchema = z.object({
+  pipeline_name: z.string(),
+  stage_name: z.string(),
+  count: z.number(),
+  total_value: z.number(),
+});
+
+export type FunnelStage = z.infer<typeof funnelStageSchema>;
+
+2. Replace server/routes.ts with:
+
+import type { Express } from "express";
+import { type Server } from "http";
+import { executeQuery } from "./snowflake";
+import { log } from "./logger";
+
+export async function registerRoutes(
+  httpServer: Server,
+  app: Express
+): Promise<Server> {
+  app.get("/api/metrics", async (_req, res) => {
+    try {
+      const rows = await executeQuery<{
+        TOTAL_LEADS: number;
+        CLOSED_WON: number;
+        LOST_DEALS: number;
+        OPEN_DEALS: number;
+        TOTAL_VALUE: number;
+      }>(`
+        SELECT
+          COUNT(*)  AS TOTAL_LEADS,
+          SUM(CASE
+            WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%'
+              OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%'
+              OR STATUS = 'won'
+            THEN 1 ELSE 0
+          END) AS CLOSED_WON,
+          SUM(CASE
+            WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Lost%'
+              OR PIPELINE_STAGE_NAME ILIKE '%Closed Lost%'
+              OR STATUS = 'lost'
+            THEN 1 ELSE 0
+          END) AS LOST_DEALS,
+          SUM(CASE
+            WHEN STATUS = 'open'
+              AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed%'
+            THEN 1 ELSE 0
+          END) AS OPEN_DEALS,
+          COALESCE(SUM(MONETARY_VALUE), 0) AS TOTAL_VALUE
+        FROM GHL_OPPORTUNITIES
+      `);
+
+      const row = rows[0];
+      res.json({
+        total_leads: Number(row?.TOTAL_LEADS) || 0,
+        closed_won: Number(row?.CLOSED_WON) || 0,
+        lost_deals: Number(row?.LOST_DEALS) || 0,
+        open_deals: Number(row?.OPEN_DEALS) || 0,
+        total_value: Number(row?.TOTAL_VALUE) || 0,
+      });
+    } catch (err: any) {
+      log(`Metrics endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch metrics from Snowflake" });
+    }
+  });
+
+  app.get("/api/meta", async (_req, res) => {
+    try {
+      const rows = await executeQuery<{
+        TOTAL_SPEND: number;
+        TOTAL_LEADS: number;
+      }>(`
+        SELECT
+          COALESCE(SUM(SPEND), 0)  AS TOTAL_SPEND,
+          COALESCE(SUM(LEADS), 0)  AS TOTAL_LEADS
+        FROM META_ADS_DAILY
+      `);
+
+      const row = rows[0];
+      const totalSpend = Number(row?.TOTAL_SPEND) || 0;
+      const totalLeads = Number(row?.TOTAL_LEADS) || 0;
+      const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
+
+      res.json({
+        total_spend: totalSpend,
+        total_leads: totalLeads,
+        cpl,
+      });
+    } catch (err: any) {
+      log(`Meta endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch Meta ads data" });
+    }
+  });
+
+  app.get("/api/funnel", async (_req, res) => {
+    try {
+      const rows = await executeQuery<{
+        PIPELINE_NAME: string;
+        PIPELINE_STAGE_NAME: string;
+        OPP_COUNT: number;
+        TOTAL_VALUE: number;
+      }>(`
+        SELECT
+          PIPELINE_NAME,
+          PIPELINE_STAGE_NAME,
+          COUNT(*)                        AS OPP_COUNT,
+          COALESCE(SUM(MONETARY_VALUE),0) AS TOTAL_VALUE
+        FROM GHL_OPPORTUNITIES
+        WHERE STATUS != 'lost'
+          AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed-Lost%'
+          AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed Lost%'
+        GROUP BY PIPELINE_NAME, PIPELINE_STAGE_NAME
+        ORDER BY PIPELINE_NAME, OPP_COUNT DESC
+      `);
+
+      res.json(
+        rows.map((r) => ({
+          pipeline_name: r.PIPELINE_NAME || "Unknown",
+          stage_name: r.PIPELINE_STAGE_NAME || "Unknown",
+          count: Number(r.OPP_COUNT) || 0,
+          total_value: Number(r.TOTAL_VALUE) || 0,
+        }))
+      );
+    } catch (err: any) {
+      log(`Funnel endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch funnel data" });
+    }
+  });
+
+  return httpServer;
+}
+
+3. Replace client/src/components/GoalCalculator.tsx with:
+
+import { useState } from "react";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Target, Users, DollarSign, Gift } from "lucide-react";
+
+interface GoalCalculatorProps {
+  totalLeads: number;
+  closedWon: number;
+  metaCpl: number;
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+export function GoalCalculator({ totalLeads, closedWon, metaCpl }: GoalCalculatorProps) {
+  const [goalInput, setGoalInput] = useState("");
+  const [popipsInput, setPopipsInput] = useState("");
+
+  const conversionRate = totalLeads > 0 ? closedWon / totalLeads : 0;
+  const goal = parseFloat(goalInput) || 0;
+  const popips = parseFloat(popipsInput) || 0;
+
+  const totalLeadsNeeded = conversionRate > 0 ? Math.ceil(goal / conversionRate) : 0;
+  const paidLeadsNeeded = Math.max(0, totalLeadsNeeded - popips);
+  const additionalMetaSpend = paidLeadsNeeded * metaCpl;
+
+  return (
+    <Card className="relative border-[#10E29C]/30 bg-card p-6">
+      <div className="mb-1 flex items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#10E29C]/10">
+          <Target className="h-5 w-5 text-[#10E29C]" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-foreground">Goal Calculator</h2>
+          <p className="text-xs text-muted-foreground">
+            Estimate Meta spend needed to hit your target
+          </p>
+        </div>
+      </div>
+
+      {conversionRate > 0 && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Current conversion rate: <span className="font-semibold text-[#10E29C]">{(conversionRate * 100).toFixed(1)}%</span>
+          {" "}&middot; Meta CPL: <span className="font-semibold text-[#10E29C]">{formatCurrency(metaCpl)}</span>
+        </p>
+      )}
+
+      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label
+            htmlFor="goal-input"
+            className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground"
+          >
+            Goal (New Memberships)
+          </label>
+          <Input
+            id="goal-input"
+            type="number"
+            min="0"
+            placeholder="e.g. 20"
+            value={goalInput}
+            onChange={(e) => setGoalInput(e.target.value)}
+            className="border-[#10E29C]/20 bg-background text-foreground placeholder:text-muted-foreground focus-visible:ring-[#10E29C]/40"
+          />
+        </div>
+        <div>
+          <label
+            htmlFor="popips-input"
+            className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground"
+          >
+            Popips (Free Organic Leads)
+          </label>
+          <Input
+            id="popips-input"
+            type="number"
+            min="0"
+            placeholder="e.g. 5"
+            value={popipsInput}
+            onChange={(e) => setPopipsInput(e.target.value)}
+            className="border-[#10E29C]/20 bg-background text-foreground placeholder:text-muted-foreground focus-visible:ring-[#10E29C]/40"
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="rounded-md border border-border bg-background p-4">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-[#10E29C]" />
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Total Leads Needed
+            </span>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-foreground">
+            {goal > 0 ? totalLeadsNeeded.toLocaleString() : "--"}
+          </p>
+        </div>
+
+        <div className="rounded-md border border-border bg-background p-4">
+          <div className="flex items-center gap-2">
+            <Gift className="h-4 w-4 text-[#10E29C]" />
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Paid Leads Needed
+            </span>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-foreground">
+            {goal > 0 ? paidLeadsNeeded.toLocaleString() : "--"}
+          </p>
+        </div>
+
+        <div className="rounded-md border border-border bg-background p-4">
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-4 w-4 text-[#10E29C]" />
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Meta Spend Needed
+            </span>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-foreground">
+            {goal > 0 ? formatCurrency(additionalMetaSpend) : "--"}
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+4. Replace client/src/pages/dashboard.tsx with:
+
+import { useQuery } from "@tanstack/react-query";
+import {
+  Trophy,
+  DollarSign,
+  Users,
+  XCircle,
+  TrendingUp,
+  Megaphone,
+} from "lucide-react";
+import { MetricCard } from "@/components/MetricCard";
+import { FunnelChart } from "@/components/FunnelChart";
+import { GoalCalculator } from "@/components/GoalCalculator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card } from "@/components/ui/card";
+import type { Metrics, MetaMetrics, FunnelStage } from "@shared/schema";
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-8 flex items-center gap-3">
+        <Skeleton className="h-8 w-8 rounded-md" />
+        <Skeleton className="h-7 w-48" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Card key={i} className="border-card-border bg-card p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 space-y-3">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-8 w-32" />
+              </div>
+              <Skeleton className="h-10 w-10 rounded-md" />
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ErrorState({ message }: { message: string }) {
+  return (
+    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <Card className="border-destructive/30 bg-card p-8 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+          <XCircle className="h-6 w-6 text-destructive" />
+        </div>
+        <h3 className="text-lg font-semibold text-foreground">
+          Unable to load metrics
+        </h3>
+        <p className="mt-2 text-sm text-muted-foreground" data-testid="text-error-message">
+          {message}
+        </p>
+      </Card>
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const { data: metrics, isLoading: metricsLoading, error: metricsError } = useQuery<Metrics>({
+    queryKey: ["/api/metrics"],
+    refetchInterval: 60000,
+  });
+
+  const { data: meta } = useQuery<MetaMetrics>({
+    queryKey: ["/api/meta"],
+    refetchInterval: 60000,
+  });
+
+  const { data: funnel, isLoading: funnelLoading } = useQuery<FunnelStage[]>({
+    queryKey: ["/api/funnel"],
+    refetchInterval: 60000,
+  });
+
+  if (metricsLoading) return <LoadingSkeleton />;
+  if (metricsError) return <ErrorState message={(metricsError as Error).message} />;
+  if (!metrics) return <ErrorState message="No data available" />;
+
+  const conversionRate =
+    metrics.total_leads > 0
+      ? ((metrics.closed_won / metrics.total_leads) * 100).toFixed(1)
+      : "0.0";
+
+  return (
+    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+          Performance Dashboard
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          GHL Pipeline &amp; Meta Ads &middot; Live from Snowflake
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <MetricCard
+          title="Total Leads"
+          value={metrics.total_leads.toLocaleString()}
+          icon={Users}
+          subtitle="All opportunities in pipeline"
+        />
+        <MetricCard
+          title="Closed Won"
+          value={metrics.closed_won.toLocaleString()}
+          icon={Trophy}
+          subtitle="Converted memberships"
+        />
+        <MetricCard
+          title="Conversion Rate"
+          value={`${conversionRate}%`}
+          icon={TrendingUp}
+          subtitle="Won / Total leads"
+        />
+        <MetricCard
+          title="Total Value"
+          value={formatCurrency(metrics.total_value)}
+          icon={DollarSign}
+          subtitle="Sum of all deal values"
+        />
+        <MetricCard
+          title="Meta Ad Spend"
+          value={meta ? formatCurrency(meta.total_spend) : "--"}
+          icon={Megaphone}
+          subtitle="Total Facebook/Instagram spend"
+        />
+        <MetricCard
+          title="Meta CPL"
+          value={meta ? formatCurrency(meta.cpl) : "--"}
+          icon={DollarSign}
+          subtitle="Cost per lead from Meta"
+        />
+      </div>
+
+      <div className="mt-8">
+        {funnelLoading ? (
+          <Card className="border-card-border bg-card p-6">
+            <Skeleton className="mb-4 h-6 w-40" />
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-8 w-full" />
+              ))}
+            </div>
+          </Card>
+        ) : funnel && funnel.length > 0 ? (
+          <FunnelChart funnel={funnel} />
+        ) : null}
+      </div>
+
+      <div className="mt-8">
+        <GoalCalculator
+          totalLeads={metrics.total_leads}
+          closedWon={metrics.closed_won}
+          metaCpl={meta?.cpl ?? 0}
+        />
+      </div>
+    </div>
+  );
+}
+
+Do NOT change server/snowflake.ts, server/index.ts, client/src/App.tsx, client/src/components/MetricCard.tsx, or client/src/components/FunnelChart.tsx. The client/src/components/RecentDeals.tsx file can be left alone — it's no longer imported anywhere.

@@ -10,25 +10,39 @@ export async function registerRoutes(
   app.get("/api/metrics", async (_req, res) => {
     try {
       const rows = await executeQuery<{
-        TOTAL_DEALS: number;
-        WON_DEALS: number;
+        TOTAL_LEADS: number;
+        CLOSED_WON: number;
         LOST_DEALS: number;
         OPEN_DEALS: number;
         TOTAL_VALUE: number;
       }>(`
         SELECT
-          COUNT(*)                                           AS TOTAL_DEALS,
-          SUM(CASE WHEN STATUS = 'won' THEN 1 ELSE 0 END)   AS WON_DEALS,
-          SUM(CASE WHEN STATUS = 'lost' THEN 1 ELSE 0 END)  AS LOST_DEALS,
-          SUM(CASE WHEN STATUS = 'open' THEN 1 ELSE 0 END)  AS OPEN_DEALS,
-          COALESCE(SUM(MONETARY_VALUE), 0)                   AS TOTAL_VALUE
+          COUNT(*)  AS TOTAL_LEADS,
+          SUM(CASE
+            WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%'
+              OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%'
+              OR STATUS = 'won'
+            THEN 1 ELSE 0
+          END) AS CLOSED_WON,
+          SUM(CASE
+            WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Lost%'
+              OR PIPELINE_STAGE_NAME ILIKE '%Closed Lost%'
+              OR STATUS = 'lost'
+            THEN 1 ELSE 0
+          END) AS LOST_DEALS,
+          SUM(CASE
+            WHEN STATUS = 'open'
+              AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed%'
+            THEN 1 ELSE 0
+          END) AS OPEN_DEALS,
+          COALESCE(SUM(MONETARY_VALUE), 0) AS TOTAL_VALUE
         FROM REVRYZE.RAW.GHL_OPPORTUNITIES
       `);
 
       const row = rows[0];
       res.json({
-        total_deals: Number(row?.TOTAL_DEALS) || 0,
-        won_deals: Number(row?.WON_DEALS) || 0,
+        total_leads: Number(row?.TOTAL_LEADS) || 0,
+        closed_won: Number(row?.CLOSED_WON) || 0,
         lost_deals: Number(row?.LOST_DEALS) || 0,
         open_deals: Number(row?.OPEN_DEALS) || 0,
         total_value: Number(row?.TOTAL_VALUE) || 0,
@@ -36,6 +50,34 @@ export async function registerRoutes(
     } catch (err: any) {
       log(`Metrics endpoint error: ${err.message}`, "api");
       res.status(500).json({ message: "Failed to fetch metrics from Snowflake" });
+    }
+  });
+
+  app.get("/api/meta", async (_req, res) => {
+    try {
+      const rows = await executeQuery<{
+        TOTAL_SPEND: number;
+        TOTAL_LEADS: number;
+      }>(`
+        SELECT
+          COALESCE(SUM(SPEND), 0)  AS TOTAL_SPEND,
+          COALESCE(SUM(LEADS), 0)  AS TOTAL_LEADS
+        FROM REVRYZE.RAW.META_ADS_DAILY
+      `);
+
+      const row = rows[0];
+      const totalSpend = Number(row?.TOTAL_SPEND) || 0;
+      const totalLeads = Number(row?.TOTAL_LEADS) || 0;
+      const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
+
+      res.json({
+        total_spend: totalSpend,
+        total_leads: totalLeads,
+        cpl,
+      });
+    } catch (err: any) {
+      log(`Meta endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch Meta ads data" });
     }
   });
 
@@ -54,6 +96,8 @@ export async function registerRoutes(
           COALESCE(SUM(MONETARY_VALUE),0) AS TOTAL_VALUE
         FROM REVRYZE.RAW.GHL_OPPORTUNITIES
         WHERE STATUS != 'lost'
+          AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed-Lost%'
+          AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed Lost%'
         GROUP BY PIPELINE_NAME, PIPELINE_STAGE_NAME
         ORDER BY PIPELINE_NAME, OPP_COUNT DESC
       `);
@@ -69,36 +113,6 @@ export async function registerRoutes(
     } catch (err: any) {
       log(`Funnel endpoint error: ${err.message}`, "api");
       res.status(500).json({ message: "Failed to fetch funnel data" });
-    }
-  });
-
-  app.get("/api/recent", async (_req, res) => {
-    try {
-      const rows = await executeQuery<{
-        NAME: string;
-        PIPELINE_STAGE_NAME: string;
-        STATUS: string;
-        MONETARY_VALUE: number;
-        UPDATED_AT_TS: string | null;
-      }>(`
-        SELECT NAME, PIPELINE_STAGE_NAME, STATUS, MONETARY_VALUE, UPDATED_AT_TS
-        FROM REVRYZE.RAW.GHL_OPPORTUNITIES
-        ORDER BY UPDATED_AT_TS DESC
-        LIMIT 10
-      `);
-
-      res.json(
-        rows.map((r) => ({
-          name: r.NAME || "Unnamed",
-          stage_name: r.PIPELINE_STAGE_NAME || "Unknown",
-          status: r.STATUS || "unknown",
-          value: Number(r.MONETARY_VALUE) || 0,
-          updated_at: r.UPDATED_AT_TS ?? null,
-        }))
-      );
-    } catch (err: any) {
-      log(`Recent deals endpoint error: ${err.message}`, "api");
-      res.status(500).json({ message: "Failed to fetch recent deals" });
     }
   });
 

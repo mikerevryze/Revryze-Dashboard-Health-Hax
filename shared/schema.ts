@@ -1,14 +1,22 @@
 import { z } from "zod";
 
 export const metricsSchema = z.object({
-  total_deals: z.number(),
+  total_leads: z.number(),
+  closed_won: z.number(),
   open_deals: z.number(),
-  won_deals: z.number(),
   lost_deals: z.number(),
   total_value: z.number(),
 });
 
 export type Metrics = z.infer<typeof metricsSchema>;
+
+export const metaSchema = z.object({
+  total_spend: z.number(),
+  total_leads: z.number(),
+  cpl: z.number(),
+});
+
+export type MetaMetrics = z.infer<typeof metaSchema>;
 
 export const funnelStageSchema = z.object({
   pipeline_name: z.string(),
@@ -18,21 +26,3 @@ export const funnelStageSchema = z.object({
 });
 
 export type FunnelStage = z.infer<typeof funnelStageSchema>;
-
-export const recentDealSchema = z.object({
-  name: z.string(),
-  stage_name: z.string(),
-  status: z.string(),
-  value: z.number(),
-  updated_at: z.string().nullable(),
-});
-
-export type RecentDeal = z.infer<typeof recentDealSchema>;
-
-export const dashboardSchema = z.object({
-  metrics: metricsSchema,
-  funnel: z.array(funnelStageSchema),
-  recent: z.array(recentDealSchema),
-});
-
-export type DashboardData = z.infer<typeof dashboardSchema>;

@@ -5,14 +5,14 @@ import {
   Users,
   XCircle,
   TrendingUp,
-  Activity,
+  Megaphone,
 } from "lucide-react";
 import { MetricCard } from "@/components/MetricCard";
 import { FunnelChart } from "@/components/FunnelChart";
-import { RecentDeals } from "@/components/RecentDeals";
+import { GoalCalculator } from "@/components/GoalCalculator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
-import type { Metrics, FunnelStage, RecentDeal } from "@shared/schema";
+import type { Metrics, MetaMetrics, FunnelStage } from "@shared/schema";
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -71,13 +71,13 @@ export default function Dashboard() {
     refetchInterval: 60000,
   });
 
-  const { data: funnel, isLoading: funnelLoading } = useQuery<FunnelStage[]>({
-    queryKey: ["/api/funnel"],
+  const { data: meta } = useQuery<MetaMetrics>({
+    queryKey: ["/api/meta"],
     refetchInterval: 60000,
   });
 
-  const { data: recent, isLoading: recentLoading } = useQuery<RecentDeal[]>({
-    queryKey: ["/api/recent"],
+  const { data: funnel, isLoading: funnelLoading } = useQuery<FunnelStage[]>({
+    queryKey: ["/api/funnel"],
     refetchInterval: 60000,
   });
 
@@ -86,8 +86,8 @@ export default function Dashboard() {
   if (!metrics) return <ErrorState message="No data available" />;
 
   const conversionRate =
-    metrics.total_deals > 0
-      ? ((metrics.won_deals / metrics.total_deals) * 100).toFixed(1)
+    metrics.total_leads > 0
+      ? ((metrics.closed_won / metrics.total_leads) * 100).toFixed(1)
       : "0.0";
 
   return (
@@ -97,46 +97,46 @@ export default function Dashboard() {
           Performance Dashboard
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          GHL Pipeline Stats &middot; Live from Snowflake
+          GHL Pipeline &amp; Meta Ads &middot; Live from Snowflake
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
-          title="Total Deals"
-          value={metrics.total_deals.toLocaleString()}
+          title="Total Leads"
+          value={metrics.total_leads.toLocaleString()}
           icon={Users}
           subtitle="All opportunities in pipeline"
         />
         <MetricCard
-          title="Open Deals"
-          value={metrics.open_deals.toLocaleString()}
-          icon={Activity}
-          subtitle="Currently active deals"
-        />
-        <MetricCard
-          title="Won Deals"
-          value={metrics.won_deals.toLocaleString()}
+          title="Closed Won"
+          value={metrics.closed_won.toLocaleString()}
           icon={Trophy}
-          subtitle="Closed won"
-        />
-        <MetricCard
-          title="Lost Deals"
-          value={metrics.lost_deals.toLocaleString()}
-          icon={XCircle}
-          subtitle="Closed lost"
+          subtitle="Converted memberships"
         />
         <MetricCard
           title="Conversion Rate"
           value={`${conversionRate}%`}
           icon={TrendingUp}
-          subtitle="Won / Total deals"
+          subtitle="Won / Total leads"
         />
         <MetricCard
           title="Total Value"
           value={formatCurrency(metrics.total_value)}
           icon={DollarSign}
           subtitle="Sum of all deal values"
+        />
+        <MetricCard
+          title="Meta Ad Spend"
+          value={meta ? formatCurrency(meta.total_spend) : "--"}
+          icon={Megaphone}
+          subtitle="Total Facebook/Instagram spend"
+        />
+        <MetricCard
+          title="Meta CPL"
+          value={meta ? formatCurrency(meta.cpl) : "--"}
+          icon={DollarSign}
+          subtitle="Cost per lead from Meta"
         />
       </div>
 
@@ -156,18 +156,11 @@ export default function Dashboard() {
       </div>
 
       <div className="mt-8">
-        {recentLoading ? (
-          <Card className="border-card-border bg-card p-6">
-            <Skeleton className="mb-4 h-6 w-40" />
-            <div className="space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
-            </div>
-          </Card>
-        ) : recent && recent.length > 0 ? (
-          <RecentDeals deals={recent} />
-        ) : null}
+        <GoalCalculator
+          totalLeads={metrics.total_leads}
+          closedWon={metrics.closed_won}
+          metaCpl={meta?.cpl ?? 0}
+        />
       </div>
     </div>
   );
