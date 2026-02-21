@@ -23,7 +23,7 @@ function getConnection(): Promise<snowflake.Connection> {
       schema,
     };
 
-    log(`Connecting with warehouse: "${warehouse}", db: "${process.env.SNOWFLAKE_DATABASE}", schema: "${schema}"`, "snowflake");
+    log(`Connecting to Snowflake (db: "${process.env.SNOWFLAKE_DATABASE}")`, "snowflake");
 
     const conn = snowflake.createConnection(connOpts);
 
@@ -33,8 +33,27 @@ function getConnection(): Promise<snowflake.Connection> {
         return reject(err);
       }
       log("Connected to Snowflake", "snowflake");
-      connection = conn;
-      resolve(conn);
+
+      const rawWh = process.env.SNOWFLAKE_WAREHOUSE || "";
+      const schemaVal = process.env.SNOWFLAKE_SCHEMA || "";
+      const useWh = rawWh.match(/^[A-Z0-9_]+$/i) ? rawWh : (schemaVal.match(/^[A-Z0-9_]+$/i) ? schemaVal : "");
+      if (useWh) {
+        conn.execute({
+          sqlText: `USE WAREHOUSE "${useWh}"`,
+          complete: (whErr) => {
+            if (whErr) {
+              log(`USE WAREHOUSE failed: ${whErr.message}`, "snowflake");
+            } else {
+              log(`Warehouse set to ${useWh}`, "snowflake");
+            }
+            connection = conn;
+            resolve(conn);
+          },
+        });
+      } else {
+        connection = conn;
+        resolve(conn);
+      }
     });
   });
 }
