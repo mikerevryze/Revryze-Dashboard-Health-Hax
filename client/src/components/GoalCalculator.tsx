@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Calculator, X, Target, Users, DollarSign, Gift, TrendingUp, TrendingDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { useCountUp } from "@/hooks/useCountUp";
 
 interface GoalCalculatorProps {
   totalLeads: number;
@@ -45,6 +46,12 @@ export function GoalCalculator({ totalLeads, closedWon, metaCpl, metaSpend }: Go
   const projectedCpm = goal > 0 ? requiredSpend / goal : 0;
   const budgetGap = goal > 0 ? requiredSpend - (targetCpm * goal) : 0;
   const currentPace = closedWon > 0 ? metaSpend / closedWon : 0;
+
+  const animLeadsNeeded = useCountUp(totalLeadsNeeded, 1500);
+  const animPaidLeads = useCountUp(paidLeadsNeeded, 1500);
+  const animRequiredSpend = useCountUp(requiredSpend, 1500);
+  const animProjectedCpm = useCountUp(projectedCpm, 1500);
+  const animBudgetGap = useCountUp(Math.abs(budgetGap), 1500);
 
   return (
     <>
@@ -160,7 +167,7 @@ export function GoalCalculator({ totalLeads, closedWon, metaCpl, metaSpend }: Go
                       <Users className="h-4 w-4 text-[#10E29C]" />
                       <span className="text-xs font-medium uppercase tracking-wider">Total Leads Needed</span>
                     </div>
-                    <p className="mt-1.5 text-2xl font-bold text-foreground" data-testid="value-leads-needed">{totalLeadsNeeded.toLocaleString()}</p>
+                    <p className="mt-1.5 text-2xl font-bold text-foreground" data-testid="value-leads-needed">{animLeadsNeeded.toLocaleString()}</p>
                   </div>
 
                   <div className="rounded-lg border border-white/5 bg-white/[0.02] p-4">
@@ -168,7 +175,7 @@ export function GoalCalculator({ totalLeads, closedWon, metaCpl, metaSpend }: Go
                       <Gift className="h-4 w-4 text-[#6366F1]" />
                       <span className="text-xs font-medium uppercase tracking-wider">Paid Leads Needed</span>
                     </div>
-                    <p className="mt-1.5 text-2xl font-bold text-foreground" data-testid="value-paid-leads">{paidLeadsNeeded.toLocaleString()}</p>
+                    <p className="mt-1.5 text-2xl font-bold text-foreground" data-testid="value-paid-leads">{animPaidLeads.toLocaleString()}</p>
                   </div>
 
                   <div className="rounded-lg border border-white/5 bg-white/[0.02] p-4">
@@ -176,7 +183,7 @@ export function GoalCalculator({ totalLeads, closedWon, metaCpl, metaSpend }: Go
                       <DollarSign className="h-4 w-4 text-[#10E29C]" />
                       <span className="text-xs font-medium uppercase tracking-wider">Required Meta Spend</span>
                     </div>
-                    <p className="mt-1.5 text-2xl font-bold text-[#10E29C]" data-testid="value-required-spend">{formatCurrency(requiredSpend)}</p>
+                    <p className="mt-1.5 text-2xl font-bold text-[#10E29C]" data-testid="value-required-spend">{formatCurrency(animRequiredSpend)}</p>
                   </div>
 
                   <div className="rounded-lg border border-white/5 bg-white/[0.02] p-4">
@@ -185,7 +192,7 @@ export function GoalCalculator({ totalLeads, closedWon, metaCpl, metaSpend }: Go
                       <span className="text-xs font-medium uppercase tracking-wider">Projected CPM</span>
                     </div>
                     <p className={`mt-1.5 text-2xl font-bold ${projectedCpm <= 150 ? "text-[#10E29C]" : projectedCpm <= 250 ? "text-amber-400" : "text-red-400"}`} data-testid="value-projected-cpm">
-                      {formatCurrency(projectedCpm)}
+                      {formatCurrency(animProjectedCpm)}
                     </p>
                   </div>
 
@@ -197,7 +204,7 @@ export function GoalCalculator({ totalLeads, closedWon, metaCpl, metaSpend }: Go
                       </span>
                     </div>
                     <p className={`mt-1.5 text-2xl font-bold ${budgetGap <= 0 ? "text-[#10E29C]" : "text-red-400"}`} data-testid="value-budget-gap">
-                      {formatCurrency(Math.abs(budgetGap))}
+                      {formatCurrency(animBudgetGap)}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {budgetGap <= 0 ? "Under target CPM budget" : "Over target CPM budget"}

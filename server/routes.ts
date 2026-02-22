@@ -196,6 +196,102 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.get("/api/leads-breakdown", async (req, res) => {
+    try {
+      const dateFilter = buildDateFilter(req.query, "DATE_START", "WHERE");
+      const metaRows = await executeQuery<{ TOTAL_LEADS: number }>(`
+        SELECT COALESCE(SUM(LEADS), 0) AS TOTAL_LEADS
+        FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+      `);
+      const metaLeads = Number(metaRows[0]?.TOTAL_LEADS) || 0;
+
+      const ghlFilter = buildDateFilter(req.query, "CREATED_AT_TS", "WHERE");
+      const ghlRows = await executeQuery<{ TOTAL_LEADS: number }>(`
+        SELECT COUNT(*) AS TOTAL_LEADS
+        FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlFilter}
+      `);
+      const totalLeads = Number(ghlRows[0]?.TOTAL_LEADS) || 0;
+      const organicLeads = Math.max(0, totalLeads - metaLeads);
+
+      res.json({ total_leads: totalLeads, meta_leads: metaLeads, organic_leads: organicLeads });
+    } catch (err: any) {
+      log(`Leads breakdown endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch leads breakdown" });
+    }
+  });
+
+  app.get("/api/daily-metrics", async (req, res) => {
+    try {
+      const dateFilter = buildDateFilter(req.query, "DATE_START", "WHERE");
+      const metaRows = await executeQuery<{
+        DATE_START: string;
+        DAILY_SPEND: number;
+        DAILY_LEADS: number;
+      }>(`
+        SELECT DATE_START,
+          COALESCE(SUM(SPEND), 0) AS DAILY_SPEND,
+          COALESCE(SUM(LEADS), 0) AS DAILY_LEADS
+        FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+        GROUP BY DATE_START
+        ORDER BY DATE_START ASC
+      `);
+
+      const ghlFilter = buildDateFilter(req.query, "CREATED_AT_TS", "WHERE");
+      const ghlRows = await executeQuery<{
+        OPP_DATE: string;
+        DAILY_LEADS: number;
+        DAILY_WON: number;
+      }>(`
+        SELECT DATE_TRUNC('day', CREATED_AT_TS)::DATE AS OPP_DATE,
+          COUNT(*) AS DAILY_LEADS,
+          SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%' OR STATUS = 'won' THEN 1 ELSE 0 END) AS DAILY_WON
+        FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlFilter}
+        GROUP BY OPP_DATE
+        ORDER BY OPP_DATE ASC
+      `);
+
+      const ghlMap = new Map<string, { leads: number; won: number }>();
+      for (const r of ghlRows) {
+        const d = r.OPP_DATE instanceof Date ? r.OPP_DATE.toISOString().split("T")[0] : String(r.OPP_DATE).substring(0, 10);
+        ghlMap.set(d, { leads: Number(r.DAILY_LEADS) || 0, won: Number(r.DAILY_WON) || 0 });
+      }
+
+      const allDates = new Set<string>();
+      for (const r of metaRows) {
+        const d = r.DATE_START instanceof Date ? r.DATE_START.toISOString().split("T")[0] : String(r.DATE_START).substring(0, 10);
+        allDates.add(d);
+      }
+      for (const d of ghlMap.keys()) allDates.add(d);
+
+      const result = Array.from(allDates).sort().map(date => {
+        const meta = metaRows.find(r => {
+          const d = r.DATE_START instanceof Date ? r.DATE_START.toISOString().split("T")[0] : String(r.DATE_START).substring(0, 10);
+          return d === date;
+        });
+        const spend = Number(meta?.DAILY_SPEND) || 0;
+        const metaLeads = Number(meta?.DAILY_LEADS) || 0;
+        const ghl = ghlMap.get(date);
+        const totalLeads = ghl?.leads || 0;
+        const closedWon = ghl?.won || 0;
+        const organicLeads = Math.max(0, totalLeads - metaLeads);
+        return {
+          date,
+          leads: totalLeads,
+          closed_won: closedWon,
+          spend,
+          meta_leads: metaLeads,
+          organic_leads: organicLeads,
+          cpl: metaLeads > 0 ? spend / metaLeads : 0,
+        };
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      log(`Daily metrics endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch daily metrics" });
+    }
+  });
+
   app.get("/api/funnel", async (req, res) => {
     try {
       const dateFilter = buildDateFilter(req.query, "CREATED_AT_TS", "AND");

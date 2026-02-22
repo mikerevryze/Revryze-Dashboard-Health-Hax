@@ -8,11 +8,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const PRESETS = [
-  { label: "7D", days: 7 },
-  { label: "30D", days: 30 },
-  { label: "60D", days: 60 },
-  { label: "90D", days: 90 },
-  { label: "ALL", days: 0 },
+  { label: "30d", days: 30 },
+  { label: "60d", days: 60 },
+  { label: "90d", days: 90 },
+  { label: "120d", days: 120 },
+  { label: "All", days: 0 },
 ] as const;
 
 interface DateRangePickerProps {

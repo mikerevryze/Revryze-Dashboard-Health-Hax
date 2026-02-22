@@ -25,25 +25,19 @@ function App() {
         <div className="flex min-h-screen flex-col bg-background">
           <header className="sticky top-0 z-50 border-b border-white/5 bg-background/80 backdrop-blur-xl">
             <div className="mx-auto flex h-14 w-full max-w-7xl items-center px-4 sm:px-6 lg:px-8">
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-3">
                 <img
-                  src="/logos/revryze-logo.png"
+                  src="/logos/revryze-icon.png"
                   alt="Revryze"
-                  className="h-10 w-auto"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = "none";
-                    const fallback = target.nextElementSibling as HTMLElement;
-                    if (fallback) fallback.style.display = "flex";
-                  }}
+                  className="h-9 w-9 rounded-lg"
                   data-testid="img-logo"
                 />
-                <div className="hidden h-8 w-8 items-center justify-center rounded-md bg-[#10E29C]" data-testid="logo-fallback">
-                  <span className="text-sm font-black text-black">R</span>
-                </div>
-                <span className="text-lg font-bold tracking-tight text-foreground" data-testid="text-brand-name">
-                  Revryze
-                </span>
+                <img
+                  src="/logos/revryze-wordmark.png"
+                  alt="Revryze"
+                  className="hidden h-7 w-auto sm:block"
+                  data-testid="img-wordmark"
+                />
               </div>
             </div>
           </header>

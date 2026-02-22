@@ -1,0 +1,93 @@
+UPGRADE THE REVRYZE PERFORMANCE DASHBOARD
+
+I have an existing React + Express + Snowflake dashboard that I need upgraded 
+with better data visualizations and interactivity. Keep the EXACT same design 
+language — pure black background, #10E29C green accent, dark cards, uppercase 
+labels. Do NOT change the color scheme or layout structure.
+
+CURRENT STACK (do not change):
+- React 18 + TypeScript + Vite
+- Tailwind CSS (dark mode)
+- Express backend with Snowflake SDK
+- TanStack React Query for data fetching
+- Radix UI components
+- Recharts for charts
+- Lucide React icons
+
+CURRENT API ENDPOINTS (all support ?days=N or ?start_date=&end_date= filtering):
+- GET /api/metrics → { total_leads, closed_won, closed_lost, open_deals, total_value }
+- GET /api/meta → { total_spend, total_leads, cpl }
+- GET /api/leads-breakdown → { total_leads, meta_leads, organic_leads }
+- GET /api/funnel → [{ pipeline, stage, deals, total_value }]
+
+LOGO: I will provide logo image files. Place the HealthHax logo in the top-left 
+of the dashboard header, replacing the current "R" square. Support both a 
+logomark (icon) and optional full wordmark. Logo files will be placed in 
+/client/public/. Use <img> tags referencing them.
+
+===== UPGRADES NEEDED =====
+
+1. ANIMATED COUNTER NUMBERS ON ALL KPI CARDS
+   - When the dashboard loads or data changes, numbers should count up from 0 
+     to their final value with a smooth easing animation (~1.5s duration)
+   - Use a lightweight approach (requestAnimationFrame or a tiny library like 
+     countup.js or react-countup)
+   - Currency values animate as currency, percentages as percentages
+   - Apply to ALL MetricCard components and GoalCalculator output values
+
+2. SPARKLINES ON KPI CARDS
+   - Add a new API endpoint: GET /api/daily-metrics → returns daily time series:
+     [{ date, leads, closed_won, spend, meta_leads, organic_leads, cpl }]
+   - Query from META_ADS_DAILY and GHL_OPPORTUNITIES grouped by date
+   - Render a tiny sparkline (40px tall, no axes, no labels) inside each 
+     MetricCard showing the last 30 days trend
+   - Use Recharts <AreaChart> with a gradient fill from #10E29C/30 to transparent
+   - Sparkline sits below the big number in each card
+
+3. ANIMATED LINE/AREA CHARTS — NEW "TRENDS" SECTION
+   - Add a new section between Lead Sources and Pipeline Funnel called "Trends"
+   - Full-width Recharts <AreaChart> with:
+     - X axis: dates (last 30/60/90 days based on active filter)
+     - Toggle between: Spend, Leads, CPL (buttons above the chart)
+     - Gradient fill under the line (#10E29C with opacity)
+     - Smooth curve (type="monotone")
+     - Animated on load (isAnimationActive={true})
+     - Tooltip showing date + value on hover
+     - Responsive, clean dark styling matching existing cards
+
+4. DONUT CHARTS — LEAD SOURCE + PIPELINE BREAKDOWN
+   - Lead Source Donut: Replace or add alongside the Lead Sources metric cards
+     - Segments: Meta (Paid) vs Organic/Other
+     - Colors: #10E29C for paid, #10E29C/30 for organic
+     - Center label showing total leads count
+     - Animated on load
+   - Pipeline Stage Donut: Add next to the funnel chart
+     - Segments: each pipeline stage
+     - Colors: varying shades/opacities of #10E29C
+     - Center label showing total deals
+     - Hover to highlight segment + show count
+
+5. GOAL CALCULATOR — KEEP AS-IS
+   - The GoalCalculator component must remain exactly as it works now
+   - It takes: totalLeads, closedWon, metaCpl as props
+   - User inputs: Goal (new memberships target) and Popips (free organic leads)
+   - Calculates: Total Leads Needed (goal ÷ conversion rate), Paid Leads 
+     Needed (total - popips), Meta Spend Needed (paid leads × CPL)
+   - Just add the animated counter treatment to the three output numbers
+
+6. SUBTLE ANIMATIONS & POLISH
+   - Cards should fade-in + slide-up on initial load (staggered, ~100ms apart)
+   - Hover effect on cards: slight scale(1.02) with shadow glow in #10E29C/20
+   - Smooth transitions on data changes (when switching date filters)
+   - Loading skeletons already exist — keep them, add a subtle pulse animation
+
+IMPORTANT CONSTRAINTS:
+- Do NOT change the color scheme (black bg, #10E29C accent, dark cards)
+- Do NOT change the existing API endpoints or their response shapes
+- Do NOT remove any existing functionality
+- Keep the DateRangePicker with 30d/60d/90d/120d/All presets
+- Keep the Pipeline Funnel horizontal bar chart
+- All new charts must be responsive and match the dark theme
+- Use Recharts (already installed) for all new charts
+- The /api/daily-metrics endpoint queries Snowflake tables: 
+  GHL_OPPORTUNITIES (RAW schema) and META_ADS_DAILY (RAW schema)

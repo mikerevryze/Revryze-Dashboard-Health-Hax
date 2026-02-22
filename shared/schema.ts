@@ -61,3 +61,23 @@ export const funnelStageSchema = z.object({
 });
 
 export type FunnelStage = z.infer<typeof funnelStageSchema>;
+
+export const dailyMetricsSchema = z.object({
+  date: z.string(),
+  leads: z.number(),
+  closed_won: z.number(),
+  spend: z.number(),
+  meta_leads: z.number(),
+  organic_leads: z.number(),
+  cpl: z.number(),
+});
+
+export type DailyMetrics = z.infer<typeof dailyMetricsSchema>;
+
+export const leadsBreakdownSchema = z.object({
+  total_leads: z.number(),
+  meta_leads: z.number(),
+  organic_leads: z.number(),
+});
+
+export type LeadsBreakdown = z.infer<typeof leadsBreakdownSchema>;

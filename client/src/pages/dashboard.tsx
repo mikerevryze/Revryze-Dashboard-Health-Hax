@@ -8,21 +8,19 @@ import { SpendLeadsChart } from "@/components/SpendLeadsChart";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CampaignTable } from "@/components/CampaignTable";
 import { CpmTrendChart } from "@/components/CpmTrendChart";
+import { TrendsChart } from "@/components/TrendsChart";
+import { LeadSourceDonut, PipelineDonut } from "@/components/DonutCharts";
 import { GoalCalculator } from "@/components/GoalCalculator";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Metrics, MetaMetrics, MetaDaily, Campaign, FunnelStage } from "@shared/schema";
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
-}
+import type { Metrics, MetaMetrics, MetaDaily, Campaign, FunnelStage, DailyMetrics, LeadsBreakdown } from "@shared/schema";
 
 function SkeletonCard() {
   return (
-    <div className="glass-card rounded-xl p-5">
+    <div className="glass-card skeleton-pulse rounded-xl p-5">
       <Skeleton className="mb-3 h-3 w-24 bg-white/5" />
       <Skeleton className="h-9 w-32 bg-white/5" />
-      <Skeleton className="mt-3 h-12 w-full bg-white/5" />
+      <Skeleton className="mt-3 h-10 w-full bg-white/5" />
     </div>
   );
 }
@@ -47,17 +45,23 @@ export default function Dashboard() {
   const { data: daily } = useQuery<MetaDaily[]>({ queryKey: [`/api/meta/daily${querySuffix}`], refetchInterval: 60000 });
   const { data: campaigns } = useQuery<Campaign[]>({ queryKey: [`/api/meta/campaigns${querySuffix}`], refetchInterval: 60000 });
   const { data: funnel } = useQuery<FunnelStage[]>({ queryKey: [`/api/funnel${querySuffix}`], refetchInterval: 60000 });
+  const { data: dailyMetrics } = useQuery<DailyMetrics[]>({ queryKey: [`/api/daily-metrics${querySuffix}`], refetchInterval: 60000 });
+  const { data: leadsBreakdown } = useQuery<LeadsBreakdown>({ queryKey: [`/api/leads-breakdown${querySuffix}`], refetchInterval: 60000 });
 
   useEffect(() => {
     if (metrics) setLastUpdated(new Date());
   }, [metrics]);
 
-  const sparklineSpend = daily?.map(d => d.spend) || [];
   const cpm = (meta?.total_spend && metrics?.closed_won && metrics.closed_won > 0)
     ? meta.total_spend / metrics.closed_won
     : 0;
   const cpmColor: "green" | "yellow" | "red" | null = cpm === 0 ? null : cpm < 150 ? "green" : cpm < 250 ? "yellow" : "red";
   const convPct = metrics?.conversion_rate ? metrics.conversion_rate * 100 : 0;
+
+  const sparkSpend = dailyMetrics?.map(d => d.spend) || [];
+  const sparkLeads = dailyMetrics?.map(d => d.leads) || [];
+  const sparkWon = dailyMetrics?.map(d => d.closed_won) || [];
+  const sparkCpl = dailyMetrics?.map(d => d.cpl) || [];
 
   return (
     <div className="relative">
@@ -88,40 +92,63 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard
                 title="Total Ad Spend"
-                value={meta ? formatCurrency(meta.total_spend) : "$0"}
+                rawValue={meta?.total_spend ?? 0}
+                formatType="currency"
                 icon={DollarSign}
-                sparklineData={sparklineSpend}
+                sparklineData={sparkSpend}
                 testId="kpi-total-spend"
+                animDelay={0}
               />
               <KpiCard
                 title="Memberships Sold"
-                value={metrics.closed_won.toLocaleString()}
+                rawValue={metrics.closed_won}
+                formatType="number"
                 icon={Trophy}
-                trendPercent={null}
+                sparklineData={sparkWon}
                 testId="kpi-memberships"
+                animDelay={100}
               />
               <KpiCard
                 title="Cost Per Member"
-                value={cpm > 0 ? formatCurrency(cpm) : "--"}
+                rawValue={cpm}
+                formatType="currency"
                 icon={Target}
                 colorCode={cpmColor}
+                sparklineData={sparkCpl}
                 testId="kpi-cpm"
+                animDelay={200}
               />
               <KpiCard
                 title="Total Leads"
-                value={metrics.total_leads.toLocaleString()}
+                rawValue={metrics.total_leads}
+                formatType="number"
                 icon={Users}
                 progressRing={{ value: convPct, label: `${convPct.toFixed(1)}% conv` }}
+                sparklineData={sparkLeads}
                 testId="kpi-total-leads"
+                animDelay={300}
               />
             </div>
 
-            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {leadsBreakdown && (
+              <div className="card-animate mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ animationDelay: "400ms" }}>
+                <LeadSourceDonut breakdown={leadsBreakdown} />
+                {funnel && funnel.length > 0 && <PipelineDonut funnel={funnel} />}
+              </div>
+            )}
+
+            {dailyMetrics && dailyMetrics.length > 0 && (
+              <div className="card-animate mt-6" style={{ animationDelay: "500ms" }}>
+                <TrendsChart data={dailyMetrics} />
+              </div>
+            )}
+
+            <div className="card-animate mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ animationDelay: "600ms" }}>
               {daily && daily.length > 0 && <SpendLeadsChart data={daily} />}
               {funnel && funnel.length > 0 && <FunnelChart funnel={funnel} />}
             </div>
 
-            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="card-animate mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ animationDelay: "700ms" }}>
               {campaigns && campaigns.length > 0 && <CampaignTable campaigns={campaigns} />}
               {daily && daily.length > 0 && metrics && (
                 <CpmTrendChart dailyData={daily} closedWon={metrics.closed_won} targetCpm={200} />
