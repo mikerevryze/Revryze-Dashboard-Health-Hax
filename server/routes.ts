@@ -20,6 +20,19 @@ function buildDateFilter(query: Record<string, any>, dateColumn: string, prefix:
   return "";
 }
 
+const META_DEDUP_CTE = `
+  WITH meta_deduped AS (
+    SELECT DATE_START, CAMPAIGN_ID, CAMPAIGN_NAME, ADSET_ID, ADSET_NAME, AD_ID, AD_NAME,
+      MAX(IMPRESSIONS) AS IMPRESSIONS, MAX(CLICKS) AS CLICKS, MAX(SPEND) AS SPEND, MAX(LEADS) AS LEADS
+    FROM REVRYZE.RAW.META_ADS_DAILY
+    GROUP BY DATE_START, CAMPAIGN_ID, CAMPAIGN_NAME, ADSET_ID, ADSET_NAME, AD_ID, AD_NAME
+  )
+`;
+
+function metaDateFilter(query: Record<string, any>, prefix: "WHERE" | "AND"): string {
+  return buildDateFilter(query, "DATE_START", prefix);
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get("/api/metrics", async (req, res) => {
     try {
@@ -52,10 +65,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/meta", async (req, res) => {
     try {
-      const dateFilter = buildDateFilter(req.query, "DATE_START", "WHERE");
+      const dateFilter = metaDateFilter(req.query, "WHERE");
       const rows = await executeQuery<{ TOTAL_SPEND: number; TOTAL_LEADS: number; }>(`
+        ${META_DEDUP_CTE}
         SELECT COALESCE(SUM(SPEND), 0) AS TOTAL_SPEND, COALESCE(SUM(LEADS), 0) AS TOTAL_LEADS
-        FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+        FROM meta_deduped ${dateFilter}
       `);
       const row = rows[0];
       const totalSpend = Number(row?.TOTAL_SPEND) || 0;
@@ -69,7 +83,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/meta/daily", async (req, res) => {
     try {
-      const dateFilter = buildDateFilter(req.query, "DATE_START", "WHERE");
+      const dateFilter = metaDateFilter(req.query, "WHERE");
       const rows = await executeQuery<{
         DATE_START: string;
         DAILY_SPEND: number;
@@ -77,12 +91,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         DAILY_IMPRESSIONS: number;
         DAILY_CLICKS: number;
       }>(`
+        ${META_DEDUP_CTE}
         SELECT DATE_START,
           COALESCE(SUM(SPEND), 0) AS DAILY_SPEND,
           COALESCE(SUM(LEADS), 0) AS DAILY_LEADS,
           COALESCE(SUM(IMPRESSIONS), 0) AS DAILY_IMPRESSIONS,
           COALESCE(SUM(CLICKS), 0) AS DAILY_CLICKS
-        FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+        FROM meta_deduped ${dateFilter}
         GROUP BY DATE_START
         ORDER BY DATE_START ASC
       `);
@@ -106,7 +121,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/meta/campaigns", async (req, res) => {
     try {
-      const dateFilter = buildDateFilter(req.query, "DATE_START", "WHERE");
+      const dateFilter = metaDateFilter(req.query, "WHERE");
       const rows = await executeQuery<{
         CAMPAIGN_ID: string;
         CAMPAIGN_NAME: string;
@@ -121,13 +136,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ADSET_IMPRESSIONS: number;
         ADSET_CLICKS: number;
       }>(`
-        WITH campaign_totals AS (
+        ${META_DEDUP_CTE},
+        campaign_totals AS (
           SELECT CAMPAIGN_ID, CAMPAIGN_NAME,
             COALESCE(SUM(SPEND), 0) AS TOTAL_SPEND,
             COALESCE(SUM(LEADS), 0) AS TOTAL_LEADS,
             COALESCE(SUM(IMPRESSIONS), 0) AS TOTAL_IMPRESSIONS,
             COALESCE(SUM(CLICKS), 0) AS TOTAL_CLICKS
-          FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+          FROM meta_deduped ${dateFilter}
           GROUP BY CAMPAIGN_ID, CAMPAIGN_NAME
         ),
         adset_totals AS (
@@ -136,7 +152,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             COALESCE(SUM(LEADS), 0) AS ADSET_LEADS,
             COALESCE(SUM(IMPRESSIONS), 0) AS ADSET_IMPRESSIONS,
             COALESCE(SUM(CLICKS), 0) AS ADSET_CLICKS
-          FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+          FROM meta_deduped ${dateFilter}
           GROUP BY CAMPAIGN_ID, ADSET_ID, ADSET_NAME
         )
         SELECT c.CAMPAIGN_ID, c.CAMPAIGN_NAME, c.TOTAL_SPEND, c.TOTAL_LEADS,
@@ -198,10 +214,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/leads-breakdown", async (req, res) => {
     try {
-      const dateFilter = buildDateFilter(req.query, "DATE_START", "WHERE");
+      const dateFilter = metaDateFilter(req.query, "WHERE");
       const metaRows = await executeQuery<{ TOTAL_LEADS: number }>(`
+        ${META_DEDUP_CTE}
         SELECT COALESCE(SUM(LEADS), 0) AS TOTAL_LEADS
-        FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+        FROM meta_deduped ${dateFilter}
       `);
       const metaLeads = Number(metaRows[0]?.TOTAL_LEADS) || 0;
 
@@ -222,16 +239,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/daily-metrics", async (req, res) => {
     try {
-      const dateFilter = buildDateFilter(req.query, "DATE_START", "WHERE");
+      const dateFilter = metaDateFilter(req.query, "WHERE");
       const metaRows = await executeQuery<{
         DATE_START: string;
         DAILY_SPEND: number;
         DAILY_LEADS: number;
       }>(`
+        ${META_DEDUP_CTE}
         SELECT DATE_START,
           COALESCE(SUM(SPEND), 0) AS DAILY_SPEND,
           COALESCE(SUM(LEADS), 0) AS DAILY_LEADS
-        FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+        FROM meta_deduped ${dateFilter}
         GROUP BY DATE_START
         ORDER BY DATE_START ASC
       `);
@@ -305,6 +323,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (err: any) {
       log(`Funnel endpoint error: ${err.message}`, "api");
       res.status(500).json({ message: "Failed to fetch funnel data" });
+    }
+  });
+
+  app.get("/api/debug/meta-levels", async (req, res) => {
+    try {
+      const rows = await executeQuery<any>(`
+        SELECT LEVEL, COUNT(*) AS ROW_COUNT, SUM(LEADS) AS TOTAL_LEADS, SUM(SPEND) AS TOTAL_SPEND
+        FROM REVRYZE.RAW.META_ADS_DAILY
+        GROUP BY LEVEL
+      `);
+      const rowCount = await executeQuery<any>(`
+        SELECT COUNT(*) AS TOTAL FROM REVRYZE.RAW.META_ADS_DAILY
+      `);
+      const adLevel = await executeQuery<any>(`
+        SELECT SUM(LEADS) AS TOTAL_LEADS, SUM(SPEND) AS TOTAL_SPEND
+        FROM (
+          SELECT DATE_START, AD_ID, MAX(LEADS) AS LEADS, MAX(SPEND) AS SPEND
+          FROM REVRYZE.RAW.META_ADS_DAILY
+          WHERE LEVEL = 'ad'
+          GROUP BY DATE_START, AD_ID
+        )
+      `);
+      res.json({ levels: rows, total_rows: rowCount[0], ad_only_deduped: adLevel[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
