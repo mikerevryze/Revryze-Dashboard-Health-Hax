@@ -20,6 +20,8 @@ function buildDateFilter(query: Record<string, any>, dateColumn: string, prefix:
   return "";
 }
 
+const GHL_VALID_FILTER = `OPPORTUNITY_ID != 'undefined' AND OPPORTUNITY_ID IS NOT NULL`;
+
 const META_DEDUP_CTE = `
   WITH meta_deduped AS (
     SELECT DATE_START, CAMPAIGN_ID, CAMPAIGN_NAME, ADSET_ID, ADSET_NAME, AD_ID, AD_NAME,
@@ -33,17 +35,23 @@ function metaDateFilter(query: Record<string, any>, prefix: "WHERE" | "AND"): st
   return buildDateFilter(query, "DATE_START", prefix);
 }
 
+function toDateStr(val: unknown): string {
+  if (val instanceof Date) return val.toISOString().split("T")[0];
+  return String(val).substring(0, 10);
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get("/api/metrics", async (req, res) => {
     try {
       const dateFilter = buildDateFilter(req.query, "CREATED_AT_TS", "WHERE");
+      const ghlWhere = dateFilter ? `${dateFilter} AND ${GHL_VALID_FILTER}` : `WHERE ${GHL_VALID_FILTER}`;
       const rows = await executeQuery<{ TOTAL_LEADS: number; CLOSED_WON: number; LOST_DEALS: number; OPEN_DEALS: number; TOTAL_VALUE: number; }>(`
         SELECT COUNT(*) AS TOTAL_LEADS,
           SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%' OR STATUS = 'won' THEN 1 ELSE 0 END) AS CLOSED_WON,
           SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Lost%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Lost%' OR STATUS = 'lost' THEN 1 ELSE 0 END) AS LOST_DEALS,
           SUM(CASE WHEN STATUS = 'open' AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed%' THEN 1 ELSE 0 END) AS OPEN_DEALS,
           COALESCE(SUM(MONETARY_VALUE), 0) AS TOTAL_VALUE
-        FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${dateFilter}
+        FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlWhere}
       `);
       const row = rows[0];
       const totalLeads = Number(row?.TOTAL_LEADS) || 0;
@@ -66,14 +74,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/meta", async (req, res) => {
     try {
       const dateFilter = metaDateFilter(req.query, "WHERE");
-      const rows = await executeQuery<{ TOTAL_SPEND: number; TOTAL_LEADS: number; }>(`
+      const spendRows = await executeQuery<{ TOTAL_SPEND: number }>(`
         ${META_DEDUP_CTE}
-        SELECT COALESCE(SUM(SPEND), 0) AS TOTAL_SPEND, COALESCE(SUM(LEADS), 0) AS TOTAL_LEADS
+        SELECT COALESCE(SUM(SPEND), 0) AS TOTAL_SPEND
         FROM meta_deduped ${dateFilter}
       `);
-      const row = rows[0];
-      const totalSpend = Number(row?.TOTAL_SPEND) || 0;
-      const totalLeads = Number(row?.TOTAL_LEADS) || 0;
+      const totalSpend = Number(spendRows[0]?.TOTAL_SPEND) || 0;
+
+      const ghlDateFilter = buildDateFilter(req.query, "CREATED_AT_TS", "WHERE");
+      const ghlWhere = ghlDateFilter ? `${ghlDateFilter} AND ${GHL_VALID_FILTER}` : `WHERE ${GHL_VALID_FILTER}`;
+      const leadRows = await executeQuery<{ META_LEADS: number }>(`
+        SELECT COUNT(*) AS META_LEADS
+        FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlWhere}
+          AND RAW:source::STRING = 'Facebook'
+      `);
+      const totalLeads = Number(leadRows[0]?.META_LEADS) || 0;
       res.json({ total_spend: totalSpend, total_leads: totalLeads, cpl: totalLeads > 0 ? totalSpend / totalLeads : 0 });
     } catch (err: any) {
       log(`Meta endpoint error: ${err.message}`, "api");
@@ -105,7 +120,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const spend = Number(r.DAILY_SPEND) || 0;
         const leads = Number(r.DAILY_LEADS) || 0;
         return {
-          date: r.DATE_START instanceof Date ? r.DATE_START.toISOString().split("T")[0] : String(r.DATE_START).substring(0, 10),
+          date: toDateStr(r.DATE_START),
           spend,
           leads,
           impressions: Number(r.DAILY_IMPRESSIONS) || 0,
@@ -214,21 +229,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get("/api/leads-breakdown", async (req, res) => {
     try {
-      const dateFilter = metaDateFilter(req.query, "WHERE");
-      const metaRows = await executeQuery<{ TOTAL_LEADS: number }>(`
-        ${META_DEDUP_CTE}
-        SELECT COALESCE(SUM(LEADS), 0) AS TOTAL_LEADS
-        FROM meta_deduped ${dateFilter}
+      const ghlDateFilter = buildDateFilter(req.query, "CREATED_AT_TS", "WHERE");
+      const ghlWhere = ghlDateFilter ? `${ghlDateFilter} AND ${GHL_VALID_FILTER}` : `WHERE ${GHL_VALID_FILTER}`;
+      const rows = await executeQuery<{ TOTAL_LEADS: number; META_LEADS: number; ORGANIC_LEADS: number }>(`
+        SELECT COUNT(*) AS TOTAL_LEADS,
+          SUM(CASE WHEN RAW:source::STRING = 'Facebook' THEN 1 ELSE 0 END) AS META_LEADS,
+          SUM(CASE WHEN RAW:source::STRING IS NULL OR RAW:source::STRING != 'Facebook' THEN 1 ELSE 0 END) AS ORGANIC_LEADS
+        FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlWhere}
       `);
-      const metaLeads = Number(metaRows[0]?.TOTAL_LEADS) || 0;
-
-      const ghlFilter = buildDateFilter(req.query, "CREATED_AT_TS", "WHERE");
-      const ghlRows = await executeQuery<{ TOTAL_LEADS: number }>(`
-        SELECT COUNT(*) AS TOTAL_LEADS
-        FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlFilter}
-      `);
-      const totalLeads = Number(ghlRows[0]?.TOTAL_LEADS) || 0;
-      const organicLeads = Math.max(0, totalLeads - metaLeads);
+      const row = rows[0];
+      const totalLeads = Number(row?.TOTAL_LEADS) || 0;
+      const metaLeads = Number(row?.META_LEADS) || 0;
+      const organicLeads = Number(row?.ORGANIC_LEADS) || 0;
 
       res.json({ total_leads: totalLeads, meta_leads: metaLeads, organic_leads: organicLeads });
     } catch (err: any) {
@@ -243,55 +255,62 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const metaRows = await executeQuery<{
         DATE_START: string;
         DAILY_SPEND: number;
-        DAILY_LEADS: number;
       }>(`
         ${META_DEDUP_CTE}
         SELECT DATE_START,
-          COALESCE(SUM(SPEND), 0) AS DAILY_SPEND,
-          COALESCE(SUM(LEADS), 0) AS DAILY_LEADS
+          COALESCE(SUM(SPEND), 0) AS DAILY_SPEND
         FROM meta_deduped ${dateFilter}
         GROUP BY DATE_START
         ORDER BY DATE_START ASC
       `);
 
-      const ghlFilter = buildDateFilter(req.query, "CREATED_AT_TS", "WHERE");
+      const ghlDateFilter = buildDateFilter(req.query, "CREATED_AT_TS", "WHERE");
+      const ghlWhere = ghlDateFilter ? `${ghlDateFilter} AND ${GHL_VALID_FILTER}` : `WHERE ${GHL_VALID_FILTER}`;
       const ghlRows = await executeQuery<{
         OPP_DATE: string;
         DAILY_LEADS: number;
         DAILY_WON: number;
+        DAILY_META_LEADS: number;
+        DAILY_ORGANIC_LEADS: number;
       }>(`
         SELECT DATE_TRUNC('day', CREATED_AT_TS)::DATE AS OPP_DATE,
           COUNT(*) AS DAILY_LEADS,
-          SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%' OR STATUS = 'won' THEN 1 ELSE 0 END) AS DAILY_WON
-        FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlFilter}
+          SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%' OR STATUS = 'won' THEN 1 ELSE 0 END) AS DAILY_WON,
+          SUM(CASE WHEN RAW:source::STRING = 'Facebook' THEN 1 ELSE 0 END) AS DAILY_META_LEADS,
+          SUM(CASE WHEN RAW:source::STRING IS NULL OR RAW:source::STRING != 'Facebook' THEN 1 ELSE 0 END) AS DAILY_ORGANIC_LEADS
+        FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlWhere}
         GROUP BY OPP_DATE
         ORDER BY OPP_DATE ASC
       `);
 
-      const ghlMap = new Map<string, { leads: number; won: number }>();
-      for (const r of ghlRows) {
-        const d = r.OPP_DATE instanceof Date ? r.OPP_DATE.toISOString().split("T")[0] : String(r.OPP_DATE).substring(0, 10);
-        ghlMap.set(d, { leads: Number(r.DAILY_LEADS) || 0, won: Number(r.DAILY_WON) || 0 });
+      const metaMap = new Map<string, number>();
+      for (const r of metaRows) {
+        metaMap.set(toDateStr(r.DATE_START), Number(r.DAILY_SPEND) || 0);
       }
 
       const allDates = new Set<string>();
-      for (const r of metaRows) {
-        const d = r.DATE_START instanceof Date ? r.DATE_START.toISOString().split("T")[0] : String(r.DATE_START).substring(0, 10);
-        allDates.add(d);
+      Array.from(metaMap.keys()).forEach(d => allDates.add(d));
+      for (const r of ghlRows) {
+        allDates.add(toDateStr(r.OPP_DATE));
       }
-      for (const d of ghlMap.keys()) allDates.add(d);
+
+      const ghlMap = new Map<string, { leads: number; won: number; metaLeads: number; organicLeads: number }>();
+      for (const r of ghlRows) {
+        ghlMap.set(toDateStr(r.OPP_DATE), {
+          leads: Number(r.DAILY_LEADS) || 0,
+          won: Number(r.DAILY_WON) || 0,
+          metaLeads: Number(r.DAILY_META_LEADS) || 0,
+          organicLeads: Number(r.DAILY_ORGANIC_LEADS) || 0,
+        });
+      }
 
       const result = Array.from(allDates).sort().map(date => {
-        const meta = metaRows.find(r => {
-          const d = r.DATE_START instanceof Date ? r.DATE_START.toISOString().split("T")[0] : String(r.DATE_START).substring(0, 10);
-          return d === date;
-        });
-        const spend = Number(meta?.DAILY_SPEND) || 0;
-        const metaLeads = Number(meta?.DAILY_LEADS) || 0;
+        const spend = metaMap.get(date) || 0;
         const ghl = ghlMap.get(date);
         const totalLeads = ghl?.leads || 0;
         const closedWon = ghl?.won || 0;
-        const organicLeads = Math.max(0, totalLeads - metaLeads);
+        const metaLeads = ghl?.metaLeads || 0;
+        const organicLeads = ghl?.organicLeads || 0;
         return {
           date,
           leads: totalLeads,
@@ -316,38 +335,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const rows = await executeQuery<{ PIPELINE_NAME: string; PIPELINE_STAGE_NAME: string; OPP_COUNT: number; TOTAL_VALUE: number; }>(`
         SELECT PIPELINE_NAME, PIPELINE_STAGE_NAME, COUNT(*) AS OPP_COUNT, COALESCE(SUM(MONETARY_VALUE),0) AS TOTAL_VALUE
         FROM REVRYZE.RAW.GHL_OPPORTUNITIES
-        WHERE STATUS != 'lost' AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed-Lost%' AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed Lost%' ${dateFilter}
+        WHERE ${GHL_VALID_FILTER} AND STATUS != 'lost' AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed-Lost%' AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed Lost%' ${dateFilter}
         GROUP BY PIPELINE_NAME, PIPELINE_STAGE_NAME ORDER BY PIPELINE_NAME, OPP_COUNT DESC
       `);
       res.json(rows.map((r) => ({ pipeline_name: r.PIPELINE_NAME || "Unknown", stage_name: r.PIPELINE_STAGE_NAME || "Unknown", count: Number(r.OPP_COUNT) || 0, total_value: Number(r.TOTAL_VALUE) || 0 })));
     } catch (err: any) {
       log(`Funnel endpoint error: ${err.message}`, "api");
       res.status(500).json({ message: "Failed to fetch funnel data" });
-    }
-  });
-
-  app.get("/api/debug/meta-levels", async (req, res) => {
-    try {
-      const rows = await executeQuery<any>(`
-        SELECT LEVEL, COUNT(*) AS ROW_COUNT, SUM(LEADS) AS TOTAL_LEADS, SUM(SPEND) AS TOTAL_SPEND
-        FROM REVRYZE.RAW.META_ADS_DAILY
-        GROUP BY LEVEL
-      `);
-      const rowCount = await executeQuery<any>(`
-        SELECT COUNT(*) AS TOTAL FROM REVRYZE.RAW.META_ADS_DAILY
-      `);
-      const adLevel = await executeQuery<any>(`
-        SELECT SUM(LEADS) AS TOTAL_LEADS, SUM(SPEND) AS TOTAL_SPEND
-        FROM (
-          SELECT DATE_START, AD_ID, MAX(LEADS) AS LEADS, MAX(SPEND) AS SPEND
-          FROM REVRYZE.RAW.META_ADS_DAILY
-          WHERE LEVEL = 'ad'
-          GROUP BY DATE_START, AD_ID
-        )
-      `);
-      res.json({ levels: rows, total_rows: rowCount[0], ad_only_deduped: adLevel[0] });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
   });
 

@@ -45,7 +45,14 @@ A full-stack performance dashboard for Revryze that connects to Snowflake to dis
 ## Environment Variables (Secrets)
 - SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, SNOWFLAKE_WAREHOUSE, SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA
 
+## Data Architecture Notes
+- **Lead counts** use GHL as source of truth (not Meta Ads), with `RAW:source::STRING = 'Facebook'` to classify paid vs organic
+- **Spend/impressions/clicks** use Meta Ads table with deduplication CTE (GROUP BY business key to handle duplicate pulls)
+- **Junk row filter**: GHL rows with `OPPORTUNITY_ID = 'undefined'` are excluded from all queries
+- **CPL** = Meta spend / GHL Facebook-sourced leads (accurate cost per actual converted lead)
+
 ## Recent Changes
+- 2026-02-22: Fixed lead counts — now uses GHL source attribution (RAW:source) instead of Meta's inflated lead events; added junk row filtering, Meta deduplication CTE
 - 2026-02-22: Upgraded dashboard with animated counter numbers on all KPI cards and GoalCalculator outputs
 - 2026-02-22: Added sparklines to all 4 KPI cards using /api/daily-metrics data
 - 2026-02-22: Added Trends section with toggleable Spend/Leads/CPL area chart
