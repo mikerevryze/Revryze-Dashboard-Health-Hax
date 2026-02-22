@@ -3,14 +3,18 @@ import { type Server } from "http";
 import { executeQuery } from "./snowflake";
 import { log } from "./logger";
 
+function isValidDate(str: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(str) && !isNaN(new Date(str).getTime());
+}
+
 function buildDateFilter(query: Record<string, any>, dateColumn: string, prefix: "WHERE" | "AND"): string {
   const startDate = query.start_date as string | undefined;
   const endDate = query.end_date as string | undefined;
-  if (startDate && endDate) {
+  if (startDate && endDate && isValidDate(startDate) && isValidDate(endDate)) {
     return `${prefix} ${dateColumn} >= '${startDate}'::DATE AND ${dateColumn} <= '${endDate}'::DATE`;
   }
-  const days = parseInt(query.days as string) || 0;
-  if (days > 0) {
+  const days = parseInt(query.days as string);
+  if (!isNaN(days) && days > 0 && days <= 3650) {
     return `${prefix} ${dateColumn} >= DATEADD('day', -${days}, CURRENT_DATE())`;
   }
   return "";
@@ -29,7 +33,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${dateFilter}
       `);
       const row = rows[0];
-      res.json({ total_leads: Number(row?.TOTAL_LEADS) || 0, closed_won: Number(row?.CLOSED_WON) || 0, lost_deals: Number(row?.LOST_DEALS) || 0, open_deals: Number(row?.OPEN_DEALS) || 0, total_value: Number(row?.TOTAL_VALUE) || 0 });
+      const totalLeads = Number(row?.TOTAL_LEADS) || 0;
+      const closedWon = Number(row?.CLOSED_WON) || 0;
+      const conversionRate = totalLeads > 0 ? closedWon / totalLeads : 0;
+      res.json({
+        total_leads: totalLeads,
+        closed_won: closedWon,
+        lost_deals: Number(row?.LOST_DEALS) || 0,
+        open_deals: Number(row?.OPEN_DEALS) || 0,
+        total_value: Number(row?.TOTAL_VALUE) || 0,
+        conversion_rate: conversionRate,
+      });
     } catch (err: any) {
       log(`Metrics endpoint error: ${err.message}`, "api");
       res.status(500).json({ message: "Failed to fetch metrics from Snowflake" });
@@ -50,6 +64,135 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (err: any) {
       log(`Meta endpoint error: ${err.message}`, "api");
       res.status(500).json({ message: "Failed to fetch Meta ads data" });
+    }
+  });
+
+  app.get("/api/meta/daily", async (req, res) => {
+    try {
+      const dateFilter = buildDateFilter(req.query, "DATE_START", "WHERE");
+      const rows = await executeQuery<{
+        DATE_START: string;
+        DAILY_SPEND: number;
+        DAILY_LEADS: number;
+        DAILY_IMPRESSIONS: number;
+        DAILY_CLICKS: number;
+      }>(`
+        SELECT DATE_START,
+          COALESCE(SUM(SPEND), 0) AS DAILY_SPEND,
+          COALESCE(SUM(LEADS), 0) AS DAILY_LEADS,
+          COALESCE(SUM(IMPRESSIONS), 0) AS DAILY_IMPRESSIONS,
+          COALESCE(SUM(CLICKS), 0) AS DAILY_CLICKS
+        FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+        GROUP BY DATE_START
+        ORDER BY DATE_START ASC
+      `);
+      res.json(rows.map((r) => {
+        const spend = Number(r.DAILY_SPEND) || 0;
+        const leads = Number(r.DAILY_LEADS) || 0;
+        return {
+          date: r.DATE_START instanceof Date ? r.DATE_START.toISOString().split("T")[0] : String(r.DATE_START).substring(0, 10),
+          spend,
+          leads,
+          impressions: Number(r.DAILY_IMPRESSIONS) || 0,
+          clicks: Number(r.DAILY_CLICKS) || 0,
+          cpl: leads > 0 ? spend / leads : 0,
+        };
+      }));
+    } catch (err: any) {
+      log(`Meta daily endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch daily Meta data" });
+    }
+  });
+
+  app.get("/api/meta/campaigns", async (req, res) => {
+    try {
+      const dateFilter = buildDateFilter(req.query, "DATE_START", "WHERE");
+      const rows = await executeQuery<{
+        CAMPAIGN_ID: string;
+        CAMPAIGN_NAME: string;
+        TOTAL_SPEND: number;
+        TOTAL_LEADS: number;
+        TOTAL_IMPRESSIONS: number;
+        TOTAL_CLICKS: number;
+        ADSET_ID: string;
+        ADSET_NAME: string;
+        ADSET_SPEND: number;
+        ADSET_LEADS: number;
+        ADSET_IMPRESSIONS: number;
+        ADSET_CLICKS: number;
+      }>(`
+        WITH campaign_totals AS (
+          SELECT CAMPAIGN_ID, CAMPAIGN_NAME,
+            COALESCE(SUM(SPEND), 0) AS TOTAL_SPEND,
+            COALESCE(SUM(LEADS), 0) AS TOTAL_LEADS,
+            COALESCE(SUM(IMPRESSIONS), 0) AS TOTAL_IMPRESSIONS,
+            COALESCE(SUM(CLICKS), 0) AS TOTAL_CLICKS
+          FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+          GROUP BY CAMPAIGN_ID, CAMPAIGN_NAME
+        ),
+        adset_totals AS (
+          SELECT CAMPAIGN_ID, ADSET_ID, ADSET_NAME,
+            COALESCE(SUM(SPEND), 0) AS ADSET_SPEND,
+            COALESCE(SUM(LEADS), 0) AS ADSET_LEADS,
+            COALESCE(SUM(IMPRESSIONS), 0) AS ADSET_IMPRESSIONS,
+            COALESCE(SUM(CLICKS), 0) AS ADSET_CLICKS
+          FROM REVRYZE.RAW.META_ADS_DAILY ${dateFilter}
+          GROUP BY CAMPAIGN_ID, ADSET_ID, ADSET_NAME
+        )
+        SELECT c.CAMPAIGN_ID, c.CAMPAIGN_NAME, c.TOTAL_SPEND, c.TOTAL_LEADS,
+          c.TOTAL_IMPRESSIONS, c.TOTAL_CLICKS,
+          a.ADSET_ID, a.ADSET_NAME, a.ADSET_SPEND, a.ADSET_LEADS,
+          a.ADSET_IMPRESSIONS, a.ADSET_CLICKS
+        FROM campaign_totals c
+        LEFT JOIN adset_totals a ON c.CAMPAIGN_ID = a.CAMPAIGN_ID
+        ORDER BY c.TOTAL_SPEND DESC, a.ADSET_SPEND DESC
+      `);
+
+      const campaignMap = new Map<string, any>();
+      for (const r of rows) {
+        const cid = String(r.CAMPAIGN_ID || "unknown");
+        if (!campaignMap.has(cid)) {
+          const spend = Number(r.TOTAL_SPEND) || 0;
+          const leads = Number(r.TOTAL_LEADS) || 0;
+          const impressions = Number(r.TOTAL_IMPRESSIONS) || 0;
+          const clicks = Number(r.TOTAL_CLICKS) || 0;
+          campaignMap.set(cid, {
+            campaign_id: cid,
+            campaign_name: String(r.CAMPAIGN_NAME || "Unknown"),
+            spend,
+            leads,
+            cpl: leads > 0 ? spend / leads : 0,
+            impressions,
+            clicks,
+            ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+            adsets: [],
+          });
+        }
+        if (r.ADSET_ID) {
+          const campaign = campaignMap.get(cid);
+          const adsetExists = campaign.adsets.some((a: any) => a.adset_id === String(r.ADSET_ID));
+          if (!adsetExists) {
+            const aSpend = Number(r.ADSET_SPEND) || 0;
+            const aLeads = Number(r.ADSET_LEADS) || 0;
+            const aImpressions = Number(r.ADSET_IMPRESSIONS) || 0;
+            const aClicks = Number(r.ADSET_CLICKS) || 0;
+            campaign.adsets.push({
+              adset_id: String(r.ADSET_ID),
+              adset_name: String(r.ADSET_NAME || "Unknown"),
+              spend: aSpend,
+              leads: aLeads,
+              cpl: aLeads > 0 ? aSpend / aLeads : 0,
+              impressions: aImpressions,
+              clicks: aClicks,
+              ctr: aImpressions > 0 ? (aClicks / aImpressions) * 100 : 0,
+            });
+          }
+        }
+      }
+      res.json(Array.from(campaignMap.values()));
+    } catch (err: any) {
+      log(`Campaign endpoint error: ${err.message}`, "api");
+      res.status(500).json({ message: "Failed to fetch campaign data" });
     }
   });
 

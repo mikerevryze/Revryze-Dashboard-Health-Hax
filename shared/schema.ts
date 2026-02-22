@@ -6,6 +6,7 @@ export const metricsSchema = z.object({
   open_deals: z.number(),
   lost_deals: z.number(),
   total_value: z.number(),
+  conversion_rate: z.number(),
 });
 
 export type Metrics = z.infer<typeof metricsSchema>;
@@ -17,6 +18,40 @@ export const metaSchema = z.object({
 });
 
 export type MetaMetrics = z.infer<typeof metaSchema>;
+
+export const metaDailySchema = z.object({
+  date: z.string(),
+  spend: z.number(),
+  leads: z.number(),
+  impressions: z.number(),
+  clicks: z.number(),
+  cpl: z.number(),
+});
+
+export type MetaDaily = z.infer<typeof metaDailySchema>;
+
+export const campaignSchema = z.object({
+  campaign_id: z.string(),
+  campaign_name: z.string(),
+  spend: z.number(),
+  leads: z.number(),
+  cpl: z.number(),
+  impressions: z.number(),
+  clicks: z.number(),
+  ctr: z.number(),
+  adsets: z.array(z.object({
+    adset_id: z.string(),
+    adset_name: z.string(),
+    spend: z.number(),
+    leads: z.number(),
+    cpl: z.number(),
+    impressions: z.number(),
+    clicks: z.number(),
+    ctr: z.number(),
+  })).optional(),
+});
+
+export type Campaign = z.infer<typeof campaignSchema>;
 
 export const funnelStageSchema = z.object({
   pipeline_name: z.string(),

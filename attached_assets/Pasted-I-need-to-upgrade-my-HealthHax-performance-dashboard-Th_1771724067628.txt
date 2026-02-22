@@ -1,0 +1,104 @@
+I need to upgrade my HealthHax performance dashboard. The existing codebase 
+uses React 18 + Vite + TypeScript + Tailwind CSS + shadcn/ui + Recharts + 
+Express backend connected to Snowflake. Keep this stack — do NOT switch frameworks.
+
+## LOGO
+I'm uploading logo files. Display the logo in the top-left of the header/navbar, 
+replacing the current text "R" branding. The logo should be ~40px tall, crisp on 
+dark backgrounds. Add an <img> tag that loads from /logos/ in the public folder.
+
+## DESIGN — Dark Mode Premium
+- Force dark mode by default (no toggle needed)
+- Background: #0A0A0F (near-black with slight blue tint)
+- Cards: glassmorphism style — semi-transparent backgrounds with 
+  backdrop-blur-xl, subtle white/teal border glow on hover
+- Accent color: keep #10E29C (Revryze teal) for primary highlights
+- Secondary accent: #6366F1 (indigo) for secondary charts/elements
+- Typography: large bold metric numbers (text-4xl font-bold), 
+  muted labels (text-muted-foreground text-sm uppercase tracking-wider)
+- Subtle gradient mesh background behind the hero metrics section
+- Smooth transitions on all interactive elements (300ms ease)
+- Card hover: slight scale(1.02) + border glow effect
+
+## KPIs — Top Row (4 large cards)
+1. **Total Ad Spend** — sum of SPEND from META_ADS_DAILY 
+   (format as currency, show daily sparkline mini-chart inside the card)
+2. **Memberships Sold** — count of Closed-Won from GHL_OPPORTUNITIES 
+   (show trend arrow vs previous period)
+3. **Cost Per Member** — Total Spend ÷ Memberships Sold 
+   (this is THE key metric — make it visually prominent, 
+   green if below $150, yellow $150-250, red above $250)
+4. **Total Leads** — count from GHL_OPPORTUNITIES 
+   (show conversion rate as a small progress ring beneath)
+
+## CHARTS SECTION — Interactive & Animated
+Row 1 (2 charts side by side):
+- **Daily Spend & Leads Over Time** — Area chart with gradient fill, 
+  dual Y-axis (spend on left in $, leads on right as count). 
+  Tooltip on hover showing date, spend, leads, CPL for that day.
+  Use Recharts AreaChart with animationDuration={800}.
+- **Pipeline Funnel** — Vertical funnel with animated bars that fill 
+  on load. Stages: Lead → Appointment Set → Showed → Closed Won. 
+  Show conversion % between each stage. Exclude lost deals.
+
+Row 2 (2 charts side by side):
+- **Campaign Performance Table** — Sortable table grouped by campaign_name 
+  showing: spend, leads, CPL, impressions, clicks, CTR. 
+  Clickable rows that expand to show adset breakdown. 
+  Use alternating row colors with the dark theme.
+- **Cost Per Member Trend** — Line chart showing CPM (cost per membership) 
+  over time (weekly buckets). Add a horizontal target line at the goal CPM. 
+  Green zone below target, red zone above.
+
+## GOAL CALCULATOR — Sticky Sidebar or Collapsible Panel
+Keep the existing GoalCalculator but upgrade it:
+- Inputs: Monthly membership goal (number input), 
+  Organic/popup leads expected (number input), 
+  Target cost per member (number input, default $200)
+- Outputs (calculated live as inputs change):
+  - Paid leads needed = (Goal - Organic) ÷ conversion_rate
+  - Required Meta spend = Paid leads needed × current CPL
+  - Projected cost per member = Required spend ÷ Goal
+  - Budget gap or surplus vs current pace (show green/red)
+- Make this a slide-out panel from the right side, triggered by a 
+  floating button with a calculator icon
+- Use framer-motion for the slide animation
+
+## DATE FILTERING
+- Sticky filter bar below the header
+- Preset chips: 7D | 30D | 60D | 90D | ALL (pill-shaped, teal when active)
+- Custom date range picker (calendar popup)
+- Campaign dropdown multi-select filter
+- All filters update every chart/metric via React Query refetch
+- Show "Last updated: X minutes ago" with auto-refresh every 60 seconds
+
+## DATA SOURCES (Snowflake)
+The backend already connects to Snowflake. Two tables:
+- REVRYZE.RAW.META_ADS_DAILY — columns: DATE_START, AD_ACCOUNT_ID, 
+  CAMPAIGN_ID, CAMPAIGN_NAME, ADSET_ID, ADSET_NAME, AD_ID, AD_NAME, 
+  IMPRESSIONS, CLICKS, SPEND, LEADS, PURCHASES
+- REVRYZE.RAW.GHL_OPPORTUNITIES — pipeline/CRM data with stages, 
+  status (won/lost/open), monetary_value, date fields
+
+## API ENDPOINTS TO ADD/UPDATE
+- GET /api/metrics?days=30 — KPI summary (leads, won, lost, value, conversion_rate)
+- GET /api/meta?days=30 — Meta totals (spend, leads, cpl)
+- GET /api/meta/daily?days=30 — Daily breakdown for time-series charts
+- GET /api/meta/campaigns?days=30 — Campaign-level rollup for the table
+- GET /api/funnel?days=30 — Pipeline funnel stages
+- All endpoints support ?days=N or ?start_date=X&end_date=Y
+
+## INTERACTIONS
+- All charts: hover tooltips with formatted numbers
+- Campaign table: click to expand → show adsets → click adset → show ads
+- Metric cards: click to see that metric's detail view/trend
+- Smooth page transitions, skeleton loaders while data fetches
+- Toast notifications on data refresh errors
+
+## IMPORTANT
+- Keep the Express + Vite server setup exactly as-is
+- Keep the Snowflake connection singleton pattern in server/snowflake.ts
+- Use existing shadcn/ui components where possible
+- All monetary values formatted as USD with commas
+- Mobile responsive — stack cards vertically on small screens
+- No authentication needed (internal tool)
