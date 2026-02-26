@@ -187,23 +187,24 @@ export default function Dashboard() {
               />
             </div>
 
+            {/* Trends chart — always at top, primary for both views */}
+            {dailyMetrics && dailyMetrics.length > 0 && (
+              <div className="card-animate mt-6" style={{ animationDelay: "500ms" }}>
+                <TrendsChart data={dailyMetrics} />
+              </div>
+            )}
+
             {viewMode === "performance" ? (
               <>
                 {/* Lead Source Donut + Membership Economics */}
-                <div className="card-animate mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ animationDelay: "500ms" }}>
+                <div className="card-animate mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ animationDelay: "600ms" }}>
                   {leadsBreakdown && <LeadSourceDonut breakdown={leadsBreakdown} />}
                   <MembershipEconomics
                     membershipsSold={metrics.closed_won}
+                    wonValue={metrics.won_value}
                     onValuesChange={handleEconomicsChange}
                   />
                 </div>
-
-                {/* Trends chart */}
-                {dailyMetrics && dailyMetrics.length > 0 && (
-                  <div className="card-animate mt-6" style={{ animationDelay: "600ms" }}>
-                    <TrendsChart data={dailyMetrics} />
-                  </div>
-                )}
 
                 {/* Daily Spend & Leads + Cost Per Member Trend — side by side */}
                 <div className="card-animate mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ animationDelay: "700ms" }}>
@@ -215,7 +216,7 @@ export default function Dashboard() {
               </>
             ) : (
               /* Scenarios View */
-              <div className="card-animate mt-6" style={{ animationDelay: "500ms" }}>
+              <div className="card-animate mt-6" style={{ animationDelay: "600ms" }}>
                 <ScenarioPanel
                   membershipsSold={metrics.closed_won}
                   totalLeads={metrics.total_leads}

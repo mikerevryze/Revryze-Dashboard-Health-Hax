@@ -45,12 +45,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const dateFilter = buildDateFilter(req.query, "CREATED_AT_TS", "WHERE");
       const ghlWhere = dateFilter ? `${dateFilter} AND ${GHL_VALID_FILTER}` : `WHERE ${GHL_VALID_FILTER}`;
-      const rows = await executeQuery<{ TOTAL_LEADS: number; CLOSED_WON: number; LOST_DEALS: number; OPEN_DEALS: number; TOTAL_VALUE: number; }>(`
+      const rows = await executeQuery<{ TOTAL_LEADS: number; CLOSED_WON: number; LOST_DEALS: number; OPEN_DEALS: number; TOTAL_VALUE: number; WON_VALUE: number; }>(`
         SELECT COUNT(*) AS TOTAL_LEADS,
           SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%' OR STATUS = 'won' THEN 1 ELSE 0 END) AS CLOSED_WON,
           SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Lost%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Lost%' OR STATUS = 'lost' THEN 1 ELSE 0 END) AS LOST_DEALS,
           SUM(CASE WHEN STATUS = 'open' AND PIPELINE_STAGE_NAME NOT ILIKE '%Closed%' THEN 1 ELSE 0 END) AS OPEN_DEALS,
-          COALESCE(SUM(MONETARY_VALUE), 0) AS TOTAL_VALUE
+          COALESCE(SUM(MONETARY_VALUE), 0) AS TOTAL_VALUE,
+          COALESCE(SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%' OR STATUS = 'won' THEN MONETARY_VALUE ELSE 0 END), 0) AS WON_VALUE
         FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlWhere}
       `);
       const row = rows[0];
@@ -63,6 +64,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         lost_deals: Number(row?.LOST_DEALS) || 0,
         open_deals: Number(row?.OPEN_DEALS) || 0,
         total_value: Number(row?.TOTAL_VALUE) || 0,
+        won_value: Number(row?.WON_VALUE) || 0,
         conversion_rate: conversionRate,
       });
     } catch (err: any) {
@@ -270,12 +272,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         OPP_DATE: string;
         DAILY_LEADS: number;
         DAILY_WON: number;
+        DAILY_REVENUE: number;
         DAILY_META_LEADS: number;
         DAILY_ORGANIC_LEADS: number;
       }>(`
         SELECT DATE_TRUNC('day', CREATED_AT_TS)::DATE AS OPP_DATE,
           COUNT(*) AS DAILY_LEADS,
           SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%' OR STATUS = 'won' THEN 1 ELSE 0 END) AS DAILY_WON,
+          COALESCE(SUM(CASE WHEN PIPELINE_STAGE_NAME ILIKE '%Closed-Won%' OR PIPELINE_STAGE_NAME ILIKE '%Closed Won%' OR STATUS = 'won' THEN MONETARY_VALUE ELSE 0 END), 0) AS DAILY_REVENUE,
           SUM(CASE WHEN RAW:source::STRING = 'Facebook' THEN 1 ELSE 0 END) AS DAILY_META_LEADS,
           SUM(CASE WHEN RAW:source::STRING IS NULL OR RAW:source::STRING != 'Facebook' THEN 1 ELSE 0 END) AS DAILY_ORGANIC_LEADS
         FROM REVRYZE.RAW.GHL_OPPORTUNITIES ${ghlWhere}
@@ -294,11 +298,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         allDates.add(toDateStr(r.OPP_DATE));
       }
 
-      const ghlMap = new Map<string, { leads: number; won: number; metaLeads: number; organicLeads: number }>();
+      const ghlMap = new Map<string, { leads: number; won: number; revenue: number; metaLeads: number; organicLeads: number }>();
       for (const r of ghlRows) {
         ghlMap.set(toDateStr(r.OPP_DATE), {
           leads: Number(r.DAILY_LEADS) || 0,
           won: Number(r.DAILY_WON) || 0,
+          revenue: Number(r.DAILY_REVENUE) || 0,
           metaLeads: Number(r.DAILY_META_LEADS) || 0,
           organicLeads: Number(r.DAILY_ORGANIC_LEADS) || 0,
         });
@@ -309,6 +314,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const ghl = ghlMap.get(date);
         const totalLeads = ghl?.leads || 0;
         const closedWon = ghl?.won || 0;
+        const revenue = ghl?.revenue || 0;
         const metaLeads = ghl?.metaLeads || 0;
         const organicLeads = ghl?.organicLeads || 0;
         return {
@@ -316,6 +322,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           leads: totalLeads,
           closed_won: closedWon,
           spend,
+          revenue,
           meta_leads: metaLeads,
           organic_leads: organicLeads,
           cpl: metaLeads > 0 ? spend / metaLeads : 0,

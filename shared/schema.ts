@@ -6,6 +6,7 @@ export const metricsSchema = z.object({
   open_deals: z.number(),
   lost_deals: z.number(),
   total_value: z.number(),
+  won_value: z.number(),
   conversion_rate: z.number(),
 });
 
@@ -67,6 +68,7 @@ export const dailyMetricsSchema = z.object({
   leads: z.number(),
   closed_won: z.number(),
   spend: z.number(),
+  revenue: z.number(),
   meta_leads: z.number(),
   organic_leads: z.number(),
   cpl: z.number(),

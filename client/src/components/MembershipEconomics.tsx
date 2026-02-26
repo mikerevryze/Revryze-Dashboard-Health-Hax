@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 
 interface MembershipEconomicsProps {
   membershipsSold: number;
+  wonValue: number;
   onValuesChange?: (monthlyRevenue: number, effectiveLifetime: number) => void;
 }
 
@@ -17,13 +18,14 @@ function formatCurrency(value: number): string {
 
 type LtvMode = "lifetime" | "churn";
 
-export function MembershipEconomics({ membershipsSold, onValuesChange }: MembershipEconomicsProps) {
-  const [monthlyRevenue, setMonthlyRevenue] = useState("");
+export function MembershipEconomics({ membershipsSold, wonValue, onValuesChange }: MembershipEconomicsProps) {
   const [ltvMode, setLtvMode] = useState<LtvMode>("lifetime");
   const [lifetimeInput, setLifetimeInput] = useState("");
   const [churnInput, setChurnInput] = useState("");
 
-  const monthlyRev = parseFloat(monthlyRevenue) || 0;
+  // Revenue per member auto-calculated from GHL value field
+  const monthlyRev = membershipsSold > 0 ? wonValue / membershipsSold : 0;
+
   const rawLifetime = parseFloat(lifetimeInput) || 0;
   const rawChurn = parseFloat(churnInput) || 0;
 
@@ -53,24 +55,26 @@ export function MembershipEconomics({ membershipsSold, onValuesChange }: Members
   return (
     <div className="glass-card rounded-xl p-6" data-testid="panel-membership-economics">
       <h3 className="mb-1 text-base font-bold text-foreground">Membership Economics</h3>
-      <p className="mb-5 text-xs text-muted-foreground">LTV modeling based on revenue &amp; retention</p>
+      <p className="mb-5 text-xs text-muted-foreground">LTV modeling based on GHL revenue &amp; retention</p>
 
       <div className="space-y-4">
+        {/* Revenue Per Member — auto-pulled from GHL */}
         <div>
           <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Monthly Revenue Per Member
+            Avg Revenue Per Member <span className="normal-case text-[#10E29C]/60">(from GHL)</span>
           </label>
-          <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
-            <Input
-              type="number"
-              min="0"
-              placeholder="e.g. 150"
-              value={monthlyRevenue}
-              onChange={(e) => setMonthlyRevenue(e.target.value)}
-              className="border-white/10 bg-white/5 pl-7 text-foreground placeholder:text-muted-foreground/50 focus-visible:ring-[#10E29C]/40"
-              data-testid="input-monthly-revenue"
-            />
+          <div className="flex h-10 items-center rounded-md border border-white/10 bg-white/5 px-3 text-sm font-semibold text-foreground">
+            {formatCurrency(monthlyRev)}
+          </div>
+        </div>
+
+        {/* Total Won Revenue */}
+        <div>
+          <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Total Won Revenue <span className="normal-case text-[#10E29C]/60">(from GHL)</span>
+          </label>
+          <div className="flex h-10 items-center rounded-md border border-white/10 bg-white/5 px-3 text-sm font-semibold text-[#10E29C]">
+            {formatCurrency(wonValue)}
           </div>
         </div>
 
