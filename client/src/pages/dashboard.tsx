@@ -4,15 +4,13 @@ import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
 import { DollarSign, Users, Trophy, Target, CalendarCheck } from "lucide-react";
 import { KpiCard } from "@/components/KpiCard";
-import { SpendLeadsChart } from "@/components/SpendLeadsChart";
-import { CpmTrendChart } from "@/components/CpmTrendChart";
 import { TrendsChart } from "@/components/TrendsChart";
 import { LeadSourceDonut } from "@/components/DonutCharts";
 import { MembershipEconomics } from "@/components/MembershipEconomics";
 import { ScenarioPanel } from "@/components/ScenarioPanel";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Metrics, MetaMetrics, MetaDaily, FunnelStage, DailyMetrics, LeadsBreakdown } from "@shared/schema";
+import type { Metrics, MetaMetrics, FunnelStage, DailyMetrics, LeadsBreakdown } from "@shared/schema";
 
 function SkeletonCard() {
   return (
@@ -48,7 +46,6 @@ export default function Dashboard() {
 
   const { data: metrics, isLoading: metricsLoading } = useQuery<Metrics>({ queryKey: [`/api/metrics${querySuffix}`], refetchInterval: 60000 });
   const { data: meta } = useQuery<MetaMetrics>({ queryKey: [`/api/meta${querySuffix}`], refetchInterval: 60000 });
-  const { data: daily } = useQuery<MetaDaily[]>({ queryKey: [`/api/meta/daily${querySuffix}`], refetchInterval: 60000 });
   const { data: funnel } = useQuery<FunnelStage[]>({ queryKey: [`/api/funnel${querySuffix}`], refetchInterval: 60000 });
   const { data: dailyMetrics } = useQuery<DailyMetrics[]>({ queryKey: [`/api/daily-metrics${querySuffix}`], refetchInterval: 60000 });
   const { data: leadsBreakdown } = useQuery<LeadsBreakdown>({ queryKey: [`/api/leads-breakdown${querySuffix}`], refetchInterval: 60000 });
@@ -204,14 +201,6 @@ export default function Dashboard() {
                     wonValue={metrics.won_value}
                     onValuesChange={handleEconomicsChange}
                   />
-                </div>
-
-                {/* Daily Spend & Leads + Cost Per Member Trend — side by side */}
-                <div className="card-animate mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2" style={{ animationDelay: "700ms" }}>
-                  {daily && daily.length > 0 && <SpendLeadsChart data={daily} />}
-                  {daily && daily.length > 0 && metrics && (
-                    <CpmTrendChart dailyData={daily} closedWon={metrics.closed_won} targetCpm={200} />
-                  )}
                 </div>
               </>
             ) : (
